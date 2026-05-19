@@ -8,7 +8,11 @@
     { "pattern": "^https://.*\\.local(:|/|$)" },
     { "pattern": "^file://" },
     { "pattern": "^/home/" },
-    { "pattern": "^~/" }
+    { "pattern": "^~/" },
+    {
+      "pattern": "^https://gitlab\\.gnome\\.org/",
+      "comment": "gitlab.gnome.org returns 406 to markdown-link-check's User-Agent but is reachable in browsers"
+    }
   ],
   "replacementPatterns": [],
   "httpHeaders": [
@@ -23,5 +27,5 @@
   "retryOn429": true,
   "retryCount": 3,
   "fallbackRetryDelay": "30s",
-  "aliveStatusCodes": [200, 206, 403]
+  "aliveStatusCodes": [200, 206, 403, 406]
 }

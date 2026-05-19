@@ -75,7 +75,7 @@ makepkg -si
    git push
    ```
 
-   Or, if using [`aurpublish`](https://github.com/AladW/aurpublish):
+   Or, if using [`aurpublish`](https://wiki.archlinux.org/title/AUR_submission_guidelines) (git subtree helper for AUR maintainers — see Arch Wiki for current implementations):
 
    ```sh
    aurpublish flashpaste
