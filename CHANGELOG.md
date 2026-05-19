@@ -26,6 +26,12 @@ Release-tag policy: every `vX.Y` commit on `main` must be tagged and have a matc
 - `assets/hero-flow-light.svg` light-mode variant
 - README badges, animated SVG hero, animated tier-comparison chart, Mermaid sequence diagram, AI-assistant TL;DR block, extended FAQ, alternatives comparison
 
+## [1.26] - 2026-05-19
+
+### Fixed
+
+- CI hygiene rolled into a tagged release so the `v1.X` tag and the `Lint` workflow on the same commit agree. v1.25's release workflow shipped the .deb successfully, but the Lint workflow on that exact tag failed on three pre-existing issues fixed in commit `8d280ef` on `main` but never re-tagged: `bin/flashpaste-logs.sh:118` SC1007 (`GRN= RED= WHT=` rewritten as `GRN='' RED='' WHT=''`), `bin/flashpaste-logs.sh:206/236/238` SC2178/SC2128 (the local `prev=""` in `kitty_poller` shadowed `declare -A prev=()` in `claude_state_poller` — renamed the local to `last`), and `CHANGELOG.md:92` MD049 (`_…_` italics on the v1.22 revert note converted to `*…*`). No behaviour change vs v1.25.
+
 ## [1.25] - 2026-05-19
 
 ### Added
