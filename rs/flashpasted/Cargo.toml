@@ -16,10 +16,10 @@ path = "src/main.rs"
 anyhow = { workspace = true }
 clap = { workspace = true }
 inotify = { workspace = true }
-nix = { workspace = true }
+nix = { workspace = true, features = ["user"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["process"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 wl-clipboard-rs = { workspace = true }

@@ -1,0 +1,20 @@
+# flashpaste daemon — NoDisplay entry matched by Wayland app_id.
+#
+# The daemon (flashpasted) calls xdg_toplevel.set_app_id("org.flashpaste.daemon")
+# on the surface that holds the clipboard selection. GNOME Shell's app
+# tracker uses that app_id to find this .desktop and respects the
+# NoDisplay=true flag — unlike bare wl-paste/wl-copy which have no
+# app_id and surface as "Unknown" gear icons.
+[Desktop Entry]
+Type=Application
+Name=flashpaste daemon
+GenericName=Clipboard owner
+Comment=Persistent Wayland clipboard owner for terminal AI agents
+Exec=flashpasted
+Icon=edit-paste-symbolic
+NoDisplay=true
+Hidden=true
+StartupNotify=false
+StartupWMClass=org.flashpaste.daemon
+Categories=Utility;
+Keywords=clipboard;paste;wayland;flashpaste;

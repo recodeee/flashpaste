@@ -19,11 +19,32 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y dpkg-dev lintian
+          sudo apt-get install -y dpkg-dev lintian libwayland-dev libx11-dev libdbus-1-dev pkg-config
 
       - name: Resolve version from tag
         id: ver
         run: echo "v=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Build the Rust workspace (tier 2 + 3 binaries) so the .deb includes
+      # flashpaste-dispatch, flashpasted, flashpaste-trigger, flashpaste-shoot.
+      # packaging/build-deb.sh detects rs/target/release/ and packages
+      # whatever's built. Skipping this step yields a bash-only .deb.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rs/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rs/Cargo.toml', 'rs/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build Rust workspace
+        run: cargo build --release --manifest-path rs/Cargo.toml
 
       - name: Build .deb
         run: VERSION=${{ steps.ver.outputs.v }} bash packaging/build-deb.sh

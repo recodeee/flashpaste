@@ -115,8 +115,8 @@ fn run(state: Arc<SharedState>) -> Result<()> {
     conn.change_property8(
         PropMode::REPLACE,
         window,
-        AtomEnum::WM_NAME.into(),
-        AtomEnum::STRING.into(),
+        AtomEnum::WM_NAME,
+        AtomEnum::STRING,
         b"flashpasted",
     )?;
     conn.flush()?;
@@ -265,7 +265,7 @@ fn serve_target(
             PropMode::REPLACE,
             requestor,
             property,
-            AtomEnum::ATOM.into(),
+            AtomEnum::ATOM,
             &supported,
         )?;
         return Ok(true);
@@ -279,7 +279,7 @@ fn serve_target(
             PropMode::REPLACE,
             requestor,
             property,
-            AtomEnum::INTEGER.into(),
+            AtomEnum::INTEGER,
             &[0u32],
         )?;
         return Ok(true);

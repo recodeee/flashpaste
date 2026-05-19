@@ -51,6 +51,25 @@ done
 # by living in /usr/local/bin (NB: dpkg-deb in this profile keeps it under /usr/bin).
 # A symlink installed by `update-alternatives` would be cleaner; keeping it simple here.
 
+# ── Rust binaries (if built) ────────────────────────────────────
+# v1.16+: ship the Rust tier-2 / tier-3 binaries when `cargo build --release`
+# has been run. Falls back gracefully to bash-only if they don't exist.
+RS_RELEASE="$REPO_DIR/rs/target/release"
+if [ -d "$RS_RELEASE" ]; then
+  for bin in flashpasted flashpaste-dispatch flashpaste-shoot flashpaste-trigger; do
+    if [ -x "$RS_RELEASE/$bin" ]; then
+      install -m 0755 "$RS_RELEASE/$bin" "$STAGE/usr/bin/$bin"
+      say "  + Rust binary: $bin ($(stat -c%s "$RS_RELEASE/$bin") bytes)"
+    fi
+  done
+  # flashpasted systemd user unit
+  if [ -f "$REPO_DIR/systemd/flashpasted.service" ]; then
+    install -m 0644 "$REPO_DIR/systemd/flashpasted.service" "$STAGE/usr/lib/systemd/user/"
+  fi
+else
+  warn "rs/target/release not found — packaging bash-only (run 'cargo build --release' first for Rust tiers)"
+fi
+
 # paste_image.sh installed to /usr/share/flashpaste/ — kitty.conf must reference that path
 # (or the postinst can symlink it to $HOME/paste_image.sh per user — handled below).
 install -m 0755 "$REPO_DIR/bin/paste_image.sh" "$STAGE/usr/share/flashpaste/paste_image.sh"

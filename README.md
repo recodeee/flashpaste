@@ -1,8 +1,16 @@
 # flashpaste
 
-> Sub-120ms image-paste into terminal AI agents (Claude Code, Codex, etc.) on GNOME Wayland — even when mutter's clipboard is wedged.
+> Sub-120ms (bash) → sub-40ms (Rust one-shot) → sub-15ms (daemon) image-paste into terminal AI agents (Claude Code, Codex, etc.) on GNOME Wayland — even when mutter's clipboard is wedged.
 
 Don't fight the stack. **Install once, paste forever.** `PrtScr` → right-click → **Paste** → the screenshot is attached to your TUI session before you blink. No more retry-spamming Ctrl+V hoping the clipboard daemon will cooperate.
+
+| Tier | Path | Target latency | Status |
+|---|---|---:|---|
+| 1 | `bin/tmux-paste-dispatch.sh` (bash) | **~127 ms** | stable, default since v1.0 |
+| 2 | `flashpaste-dispatch` (Rust one-shot, direct kitty IPC + in-process X11 selection) | **<40 ms** | opt-in, v1.15 |
+| 3 | `flashpasted` daemon + `flashpaste-trigger` (1-byte unix-socket trigger) | **<15 ms** | opt-in, v1.15 |
+
+Tier 1 is always-on. Tiers 2 and 3 are progressive enhancements — both fall back to Tier 1 cleanly when not wired in.
 
 flashpaste is the missing glue that makes the standard Linux terminal stack just work for image paste:
 
@@ -23,8 +31,9 @@ If you already run **kitty + tmux on GNOME Wayland** (the standard Claude Code /
 - **PrtScr → right-click → Paste.** No extra clipboard helper, no manual file dance.
 - **Multi-paste the same screenshot.** Hammer it as many times as you want, in any pane.
 - **Falls back gracefully.** xclip (XWayland), file-based pre-stage, recursion guard, wedge cache.
-- **Hides the phantom 'wl-clipboard' dock entry via a NoDisplay .desktop file (until the daemon in phase 2 replaces the wl-paste forks entirely).**
-- **End-to-end timing telemetry.** Every step is logged with `T+<ms> Δ<ms>` so regressions are visible at a glance.
+- **No phantom dock icons.** Aggressive janitor + NoDisplay `.desktop` for every short-lived Wayland client.
+- **Three tiers, one knob.** Bash by default; flip a tmux binding to opt into the Rust dispatch or the daemon path.
+- **End-to-end timing telemetry.** Every checkpoint is logged with `T+<ms> Δ<ms>`; `FLASHPASTE_TRACE=1` emits one JSONL row per checkpoint for percentile analysis (`flashpaste-trace.sh`).
 
 ## Why this exists
 
@@ -294,6 +303,49 @@ To revert, point the `bind -n C-v` line back at `tmux-paste-dispatch.sh` — the
 ### Telemetry
 
 Same env vars as bash: `FLASHPASTE_QUIET=1` to silence, `FLASHPASTE_TRACE=1` to write the JSON sink to `~/.local/state/flashpaste-trace.jsonl`. Human log is at `~/.local/state/flashpaste-paste.log` by default (override with `FLASHPASTE_LOG`).
+
+## Daemon mode (experimental, target <15ms)
+
+`flashpasted` (under `rs/flashpasted/`) is a long-lived clipboard owner. It does the slow work — file reads, Wayland/X11 selection claims, kitty socket lookup — **before** the user presses Ctrl-V. The tmux binding then fires a 5-line trigger binary (`flashpaste-trigger`) that writes one JSON message to a unix socket; the daemon already has everything staged and just runs the unbind → kitty send-text → schedule-rebind sequence directly.
+
+Bonus side effect: a single persistent Wayland client with a stable `app_id` instead of N short-lived `wl-paste` forks → no more phantom "wl-clipboard" entries in the Ubuntu Dock (cleanly solves what `share/applications/wl-clipboard.desktop` papered over in v1.13).
+
+### Enabling (opt-in)
+
+```bash
+# Build (release profile, LTO, strip)
+cd ~/.local/share/flashpaste/rs
+cargo build --release -p flashpasted -p flashpaste-trigger
+
+# Symlink both binaries
+ln -sf "$(pwd)/target/release/flashpasted"        ~/.local/bin/flashpasted
+ln -sf "$(pwd)/target/release/flashpaste-trigger" ~/.local/bin/flashpaste-trigger
+
+# Install + enable the user unit
+cp ../systemd/flashpasted.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now flashpasted.service
+
+# Switch the tmux binding to the trigger:
+#
+#   bind -n C-v run-shell -b "TMUX_PASTE_TRIGGER=ctrl-v /home/$USER/.local/bin/flashpaste-trigger '#{pane_id}'"
+#
+tmux source-file ~/.tmux.conf
+```
+
+The trigger is **safe to wire in unconditionally**: if `$XDG_RUNTIME_DIR/flashpaste.sock` doesn't exist (daemon down or not installed), `flashpaste-trigger` `exec`s `tmux-paste-dispatch.sh` directly — zero overhead, identical behaviour to Tier 1.
+
+### Verify
+
+```bash
+systemctl --user status flashpasted              # Active (running)
+journalctl --user -u flashpasted -f              # Live logs
+ss -lUn | grep flashpaste.sock                   # Socket present
+```
+
+## Fast capture, again
+
+When `flashpasted` is running, `flashpaste-shoot` skips the file-on-disk round-trip and stages PNG bytes directly into the daemon's selection owners via the same unix socket. End-to-end Print → ready drops from ~3s (GNOME Screenshot UI) to ~250ms.
 
 ## License
 
