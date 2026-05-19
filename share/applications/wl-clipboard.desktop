@@ -1,0 +1,18 @@
+# flashpaste: NoDisplay desktop entry for wl-clipboard (umbrella binary
+# name some compositors report instead of the specific wl-paste /
+# wl-copy executable). Companion files wl-paste.desktop + wl-copy.desktop
+# cover the actual executables. Together they hide every short-lived
+# wl-clipboard child from Ubuntu Dock / Dash-to-Dock.
+[Desktop Entry]
+Type=Application
+Name=wl-clipboard
+GenericName=Wayland Clipboard Utilities
+Comment=Command-line copy/paste utilities for Wayland
+Exec=/usr/bin/wl-paste
+Icon=edit-paste-symbolic
+NoDisplay=true
+Hidden=true
+StartupNotify=false
+StartupWMClass=wl-clipboard
+Categories=Utility;
+Keywords=clipboard;wayland;flashpaste;

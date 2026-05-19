@@ -21,3 +21,9 @@ map ctrl+shift+alt+s launch --type=background sh -c \
   'dbus-send --session --dest=org.gnome.Shell --type=method_call \
    /org/gnome/Shell org.gnome.Shell.Eval \
    string:"Main.screenshotUI.open();"'
+
+# Fast portal-based capture (no GNOME screenshot UI). Captures full screen
+# directly via the XDG screenshot portal and stages into the flashpaste
+# daemon if running, or drops a PNG into ~/Pictures/Screenshots/ otherwise.
+map ctrl+shift+print launch --type=background -- flashpaste-shoot
+map ctrl+alt+print   launch --type=background -- flashpaste-shoot --interactive

@@ -1,0 +1,21 @@
+[package]
+name = "flashpaste-trigger"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Minimal 1-byte trigger that pings the flashpasted daemon, with bash dispatcher fallback."
+
+[[bin]]
+name = "flashpaste-trigger"
+path = "src/main.rs"
+
+# Hot path: cold-start matters. Strip every dep we don't need.
+# No tokio, no x11rb, no wl-clipboard-rs, no notify, no inotify.
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+nix = { workspace = true }
+serde_json = { workspace = true }

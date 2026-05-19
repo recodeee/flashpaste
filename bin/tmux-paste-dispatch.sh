@@ -132,6 +132,24 @@ set -u
 readonly LOG="${TMUX_PASTE_LOG:-$HOME/.local/state/tmux-paste.log}"
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
 
+# ────────────────────────────────────────────────────────────────────
+# JSON trace sink (Phase 0 of flashpaste perf plan).
+#
+# Default OFF. Enable with FLASHPASTE_TRACE=1 to emit one JSON line per
+# checkpoint to $FLASHPASTE_TRACE_LOG (default
+# ~/.local/state/flashpaste-trace.jsonl). Each invocation gets a
+# unique trace id of the form "<unix_seconds>-<pid>" so the analyzer
+# can group rows back into individual pastes.
+#
+# Aggregate / inspect with bin/flashpaste-trace.sh — it computes
+# p50/p90/p99 latency per checkpoint across the last N invocations.
+#
+# FLASHPASTE_QUIET=1 still wins. When quiet is set, no JSON either.
+# ────────────────────────────────────────────────────────────────────
+readonly FLASHPASTE_TRACE_LOG="${FLASHPASTE_TRACE_LOG:-$HOME/.local/state/flashpaste-trace.jsonl}"
+mkdir -p "$(dirname "$FLASHPASTE_TRACE_LOG")" 2>/dev/null
+_TRACE_ID="$(date +%s)-$$"
+
 if [ "${FLASHPASTE_QUIET:-0}" = "1" ]; then
   log()  { :; }
   clog() { :; }
@@ -151,6 +169,7 @@ log() {
 # fork cost of `date`.
 _T_START_MS=
 _T_PREV_MS=
+_T_LAST_TOTAL_MS=0
 t() {
   local now_ms epoch
   if [ -n "${EPOCHREALTIME:-}" ]; then
@@ -166,9 +185,35 @@ t() {
   local total=$((now_ms - _T_START_MS))
   local delta=$((now_ms - _T_PREV_MS))
   _T_PREV_MS=$now_ms
+  _T_LAST_TOTAL_MS=$total
   printf '[%s] T+%4dms (Δ%3dms) :: %s\n' "$(date '+%H:%M:%S.%3N')" "$total" "$delta" "$*" >>"$LOG"
   clog "paste-dispatch" "event=timing" "total_ms=$total" "delta_ms=$delta" "step='$*'"
+  # JSON sink — see header comment near $FLASHPASTE_TRACE_LOG.
+  # Analyzer: bin/flashpaste-trace.sh
+  if [ "${FLASHPASTE_TRACE:-0}" = "1" ]; then
+    local step_esc=${1//\\/\\\\}
+    step_esc=${step_esc//\"/\\\"}
+    printf '{"trace":"%s","t_ms":%d,"delta_ms":%d,"step":"%s","ts":"%s"}\n' \
+      "$_TRACE_ID" "$total" "$delta" "$step_esc" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+      >>"$FLASHPASTE_TRACE_LOG"
+  fi
 }
+
+# Exit summary — fires on every `exit` path (including the multiple
+# `exit 0` calls scattered through the script). Emits one synthetic
+# "__exit" record so the analyzer can compute per-invocation totals.
+# Gated identically to t(): off unless FLASHPASTE_TRACE=1, and quiet
+# mode short-circuits the whole verbose branch anyway.
+_flashpaste_trace_exit() {
+  local rc=$?
+  if [ "${FLASHPASTE_TRACE:-0}" = "1" ]; then
+    printf '{"trace":"%s","t_ms":%d,"delta_ms":0,"step":"__exit","exit":%d,"ts":"%s"}\n' \
+      "$_TRACE_ID" "$_T_LAST_TOTAL_MS" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
+      >>"$FLASHPASTE_TRACE_LOG"
+  fi
+  return $rc
+}
+trap _flashpaste_trace_exit EXIT
 fi  # /FLASHPASTE_QUIET branch
 # --------------------------------------------------------------------
 

@@ -1,0 +1,18 @@
+# flashpaste: NoDisplay entry for /usr/bin/wl-paste so GNOME Shell /
+# Dash-to-Dock attributes short-lived wl-paste reads to a known .desktop
+# (with NoDisplay=true) instead of surfacing them as phantom "Unknown"
+# gear icons in the Open Windows section of the dock.
+[Desktop Entry]
+Type=Application
+Name=wl-paste
+GenericName=Wayland Clipboard Reader
+Comment=Read data from the Wayland clipboard
+Exec=/usr/bin/wl-paste
+TryExec=/usr/bin/wl-paste
+Icon=edit-paste-symbolic
+NoDisplay=true
+Hidden=true
+StartupNotify=false
+StartupWMClass=wl-paste
+Categories=Utility;
+Keywords=clipboard;paste;wayland;flashpaste;

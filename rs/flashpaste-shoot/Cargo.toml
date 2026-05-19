@@ -1,0 +1,38 @@
+[package]
+name = "flashpaste-shoot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Fast portal-based screenshot capture that stages the PNG into the flashpaste daemon (or drops it in ~/Pictures/Screenshots/)."
+
+[[bin]]
+name = "flashpaste-shoot"
+path = "src/main.rs"
+
+[dependencies]
+# Portal-based screenshot. We deliberately do NOT pull in the gtk/gdk
+# features — we only need the D-Bus portal proxy, not widgets.
+# default-features is already off in the workspace dep, but we re-state
+# it here explicitly so a future workspace change can't accidentally pull
+# in gtk and balloon our binary size + dep tree.
+ashpd = { workspace = true, default-features = false, features = ["tokio"] }
+zbus = { workspace = true }
+
+# async runtime
+tokio = { workspace = true }
+
+# CLI + logging + errors
+anyhow = { workspace = true }
+clap = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+# JSON message framing for daemon stage protocol
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# XDG_RUNTIME_DIR fallback
+nix = { workspace = true }

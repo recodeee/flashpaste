@@ -1,0 +1,25 @@
+[package]
+name = "flashpaste-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Shared library for flashpaste: paths, recursion guard, clipboard staging, kitty IPC, tmux helpers, logging."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+arboard = { workspace = true }
+nix = { workspace = true }
+once_cell = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true }
+x11rb = { workspace = true }

@@ -27,7 +27,8 @@ mkdir -p "$BIN_DST"
 
 for script in tmux-paste-dispatch.sh clipboard-set.sh clipboard-janitor.sh \
               get-clipboard-text.sh clip-pipeline-log.sh screenshot-to-clipboard \
-              flashpaste-screenshot-preload.sh flashpaste-doctor.sh; do
+              flashpaste-screenshot-preload.sh flashpaste-doctor.sh \
+              flashpaste-trace.sh; do
   src="$BIN_SRC/$script"
   dst="$BIN_DST/$script"
   if [ -e "$dst" ] && [ ! -L "$dst" ]; then
@@ -58,6 +59,12 @@ if ! echo ":$PATH:" | grep -q ":$BIN_DST:"; then
 elif ! command -v wl-paste | grep -q "^$BIN_DST"; then
   warn "$BIN_DST is in PATH but /usr/bin precedes it — wl-paste shim won't activate."
 fi
+
+# ── desktop entries (hide phantom dock icons) ──────────────────────
+APPS_DST="$HOME/.local/share/applications"
+mkdir -p "$APPS_DST"
+ln -sf "$REPO_DIR/share/applications/wl-clipboard.desktop" "$APPS_DST/wl-clipboard.desktop"
+say "installed wl-clipboard.desktop (hides phantom dock entry)"
 
 # ── systemd user services ──────────────────────────────────────────
 mkdir -p "$SYSTEMD_DST"

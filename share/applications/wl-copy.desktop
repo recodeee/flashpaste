@@ -1,0 +1,19 @@
+# flashpaste: NoDisplay entry for /usr/bin/wl-copy so GNOME Shell /
+# Dash-to-Dock attributes the long-lived wl-copy daemon (the one that
+# owns the clipboard selection between paste events) to a known .desktop
+# with NoDisplay=true. Stops the persistent "Unknown" gear icon that
+# every screenshot/copy spawns.
+[Desktop Entry]
+Type=Application
+Name=wl-copy
+GenericName=Wayland Clipboard Writer
+Comment=Copy data into the Wayland clipboard
+Exec=/usr/bin/wl-copy
+TryExec=/usr/bin/wl-copy
+Icon=edit-copy-symbolic
+NoDisplay=true
+Hidden=true
+StartupNotify=false
+StartupWMClass=wl-copy
+Categories=Utility;
+Keywords=clipboard;copy;wayland;flashpaste;

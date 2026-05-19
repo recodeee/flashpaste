@@ -23,6 +23,7 @@ If you already run **kitty + tmux on GNOME Wayland** (the standard Claude Code /
 - **PrtScr → right-click → Paste.** No extra clipboard helper, no manual file dance.
 - **Multi-paste the same screenshot.** Hammer it as many times as you want, in any pane.
 - **Falls back gracefully.** xclip (XWayland), file-based pre-stage, recursion guard, wedge cache.
+- **Hides the phantom 'wl-clipboard' dock entry via a NoDisplay .desktop file (until the daemon in phase 2 replaces the wl-paste forks entirely).**
 - **End-to-end timing telemetry.** Every step is logged with `T+<ms> Δ<ms>` so regressions are visible at a glance.
 
 ## Why this exists
@@ -188,6 +189,17 @@ Every dispatch invocation emits checkpoints like:
 
 If something regresses, the `Δ` column tells you immediately which step.
 
+### Tracing
+
+Set `FLASHPASTE_TRACE=1` in the env (e.g. via `~/.tmux.conf`'s `set-environment`) to also emit one JSON line per checkpoint to `~/.local/state/flashpaste-trace.jsonl`. Aggregate with:
+
+```bash
+flashpaste-trace.sh                    # p50/p90/p99 per step, last 100 pastes
+flashpaste-trace.sh --tail             # live
+```
+
+`FLASHPASTE_QUIET=1` still wins — it suppresses the JSON sink too.
+
 ## Approaches that look promising but don't work on GNOME Wayland
 
 A non-exhaustive list of dead-ends so future contributors don't waste a week:
@@ -198,6 +210,26 @@ A non-exhaustive list of dead-ends so future contributors don't waste a week:
 - **Pure `ydotool` Ctrl+V from a kitty pane** — kitty's own `map ctrl+v` keybinding intercepts synthesized keystrokes and runs its paste action instead of letting the keystroke reach the inner TUI. (`kitty @ send-text` bypasses this, at the cost of needing the unbind-rebind dance with tmux.)
 - **`tmux send-keys -t $pane C-v`** — the byte arrives in the pty but Claude Code's image-paste handler does NOT trigger from it. Use `kitty @ send-text \026` (verified working) instead.
 - **The clipboard-poll service polling `wl-paste --type text`** — every poll cycle flashes the Ubuntu dock and re-writes the clipboard with cliphist's last cached text, breaking actual paste. **Keep it disabled.**
+
+## Fast capture (experimental)
+
+`flashpaste-shoot` is a small Rust binary that takes a screenshot via the XDG screenshot portal and stages it directly into the flashpaste daemon (or `~/Pictures/Screenshots/` if the daemon isn't running). End-to-end capture-to-ready: target ~250ms, vs the GNOME Screenshot UI flow that needs 3–4 clicks and 3+ seconds.
+
+Build:
+
+```bash
+cargo build --release -p flashpaste-shoot
+ln -sf "$PWD/rs/target/release/flashpaste-shoot" ~/.local/bin/flashpaste-shoot
+```
+
+Bind in kitty (see `examples/kitty.conf.snippet`):
+
+```conf
+map ctrl+shift+print launch --type=background -- flashpaste-shoot
+map ctrl+alt+print   launch --type=background -- flashpaste-shoot --interactive
+```
+
+Or run directly: `flashpaste-shoot --print-path` writes the path to stdout for shell composition. Pass `--no-daemon` to skip the daemon-stage attempt and only drop the PNG on disk (the existing `.path` watcher pre-loads it into xclip anyway).
 
 ## License
 

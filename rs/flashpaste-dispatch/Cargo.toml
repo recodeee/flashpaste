@@ -1,0 +1,22 @@
+[package]
+name = "flashpaste-dispatch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Rust drop-in replacement for tmux-paste-dispatch.sh's fast path. Target: <40ms paste-to-byte latency."
+
+[[bin]]
+name = "flashpaste-dispatch"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+flashpaste-common = { workspace = true }
+nix = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+x11rb = { workspace = true }
