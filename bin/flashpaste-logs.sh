@@ -115,7 +115,7 @@ fi
 
 # ── line prefixers (sed -u keeps streaming, doesn't buffer) ──────────────
 # Two more colors for the new streams.
-if [ -t 1 ]; then GRN=$'\e[32m' RED=$'\e[31m' WHT=$'\e[37m'; else GRN= RED= WHT=; fi
+if [ -t 1 ]; then GRN=$'\e[32m' RED=$'\e[31m' WHT=$'\e[37m'; else GRN='' RED='' WHT=''; fi
 pfx_daemon()    { sed -u  "s|^|${CYN}[daemon] ${OFF}|"; }
 pfx_trigger()   { sed -u  "s|^|${YEL}[trigger]${OFF} |"; }
 pfx_pipeline()  { sed -u  "s|^|${MAG}[pipe]   ${OFF}|"; }
@@ -203,7 +203,10 @@ clipboard_poller() {
 # Kitty window state poller: emit on focus/count change. Use to debug
 # "send-text landed in the wrong window".
 kitty_poller() {
-  local sock prev=""
+  # `last` (was `prev`) renamed because `claude_state_poller` declares
+  # `declare -A prev=()` globally — shellcheck (correctly) flagged the
+  # same name shadowing an associative array with a string.
+  local sock last=""
   for s in "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"/kitty-main-*; do
     [ -S "$s" ] && sock="unix:$s" && break
   done
@@ -233,9 +236,9 @@ for ow in d:
             if w.get("is_active"):  active  = w.get("id")
 print(f"focused={focused} active={active} count={count}")
 ' 2>/dev/null)
-    if [ -n "$cur" ] && [ "$cur" != "$prev" ]; then
+    if [ -n "$cur" ] && [ "$cur" != "$last" ]; then
       printf '%s %s\n' "$ts" "$cur"
-      prev=$cur
+      last=$cur
     fi
     sleep "$CLIPBOARD_INTERVAL"
   done

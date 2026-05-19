@@ -89,7 +89,7 @@ Release-tag policy: every `vX.Y` commit on `main` must be tagged and have a matc
 
 ### Fixed
 
-- `examples/tmux.conf.snippet`: dropped the `-O` flag from the right-click menu binding so the menu auto-dismisses on click-outside / mouse-release-outside. With `-O` the menu held the pane in modal-grab until Escape, which read as the pane being "frozen" after a right-click — most visible in TUIs that grab keystrokes (Claude Code chat input). _Reverted in v1.23 — the freeze repro was on tmux <3.4 and the removal made the menu unusable on 3.6a._
+- `examples/tmux.conf.snippet`: dropped the `-O` flag from the right-click menu binding so the menu auto-dismisses on click-outside / mouse-release-outside. With `-O` the menu held the pane in modal-grab until Escape, which read as the pane being "frozen" after a right-click — most visible in TUIs that grab keystrokes (Claude Code chat input). *Reverted in v1.23 — the freeze repro was on tmux <3.4 and the removal made the menu unusable on 3.6a.*
 
 ## [1.19] - 2026-05-19
 
