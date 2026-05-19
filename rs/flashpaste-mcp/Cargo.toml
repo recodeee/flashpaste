@@ -1,0 +1,21 @@
+[package]
+name = "flashpaste-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "MCP server exposing flashpaste tools (screenshot, clipboard read/write, paste) to LLM agents over stdio"
+
+[[bin]]
+name = "flashpaste-mcp"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

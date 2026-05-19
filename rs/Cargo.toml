@@ -6,6 +6,7 @@ members = [
     "flashpasted",
     "flashpaste-trigger",
     "flashpaste-shoot",
+    "flashpaste-mcp",
 ]
 
 [workspace.package]
@@ -27,7 +28,7 @@ notify = "6"
 inotify = "0.10"
 
 # async runtime (daemon)
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "signal", "time", "sync", "fs"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "net", "io-util", "io-std", "signal", "time", "sync", "fs"] }
 
 # logging
 tracing = "0.1"
