@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+wl_copy="${WL_COPY:-$HOME/.local/bin/wl-copy}"
+xclip_bin="${XCLIP:-$HOME/.local/bin/xclip}"
+gdbus_bin="${GDBUS:-/usr/bin/gdbus}"
+file_bin="${FILE:-/usr/bin/file}"
+mode="${1:-latest}"
+
+tmp="$(mktemp --suffix=.png)"
+cleanup() { rm -f "$tmp"; }
+trap cleanup EXIT
+
+copy_file() {
+  local source="$1"
+  local mime
+  local status
+  mime="$($file_bin --mime-type -b "$source")"
+  case "$mime" in
+    image/png|image/jpeg)
+      # --paste-once tells wl-copy to serve the clipboard until the
+      # first paste request, then exit. Two upsides:
+      #   1. The wl-copy daemon disappears as soon as you paste the
+      #      screenshot into anything, so the Ubuntu dock no longer
+      #      shows a lingering "Unknown" gear icon.
+      #   2. We don't fight a stale wl-copy daemon if you screenshot
+      #      again before the first one's clipboard generation is gone.
+      # Tradeoff: you can only paste the screenshot once. Re-screenshot
+      # if you need to paste it again.
+      #
+      # We also stop running xclip *in parallel* with wl-copy. The old
+      # script invoked both, which created a race (xclip's claim
+      # superseded wl-copy's but left wl-copy alive holding stale data
+      # forever — another source of stuck gear icons). xclip now runs
+      # only as a fallback when wl-copy actually fails.
+      local ok=1
+      if "$wl_copy" --paste-once --type "$mime" < "$source"; then
+        ok=0
+      else
+        status=$?
+        if [ "$status" -eq 141 ]; then
+          ok=0
+        elif [ -x "$xclip_bin" ] && "$xclip_bin" -selection clipboard -l 1 -t "$mime" -i "$source" >/dev/null 2>&1; then
+          ok=0
+        fi
+      fi
+      return "$ok"
+      ;;
+    *) echo "Unsupported clipboard image type: $mime" >&2; return 1 ;;
+  esac
+}
+
+case "$mode" in
+  latest)
+    latest="$(find "$HOME/Pictures/Screenshots" -maxdepth 1 -type f \( -iname "*.png" -o -iname "*.jpg" -o -iname "*.jpeg" \) -printf "%T@ %p\n" 2>/dev/null | sort -nr | sed -n '1s/^[^ ]* //p')"
+    if [ -z "$latest" ]; then
+      echo "No screenshot found in $HOME/Pictures/Screenshots" >&2
+      exit 1
+    fi
+    copy_file "$latest"
+    ;;
+  full)
+    "$gdbus_bin" call --session \
+      --dest org.gnome.Shell.Screenshot \
+      --object-path /org/gnome/Shell/Screenshot \
+      --method org.gnome.Shell.Screenshot.Screenshot \
+      false true "$tmp" >/dev/null
+    copy_file "$tmp"
+    ;;
+  window)
+    "$gdbus_bin" call --session \
+      --dest org.gnome.Shell.Screenshot \
+      --object-path /org/gnome/Shell/Screenshot \
+      --method org.gnome.Shell.Screenshot.ScreenshotWindow \
+      true false true "$tmp" >/dev/null
+    copy_file "$tmp"
+    ;;
+  *)
+    echo "Usage: screenshot-to-clipboard [latest|full|window]" >&2
+    exit 64
+    ;;
+esac

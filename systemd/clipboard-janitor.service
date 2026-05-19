@@ -1,0 +1,12 @@
+[Unit]
+Description=Reap stuck wl-paste / wl-copy daemons (flashpaste)
+Documentation=https://github.com/NagyVikt/flashpaste
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/clipboard-janitor.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

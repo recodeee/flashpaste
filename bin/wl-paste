@@ -1,0 +1,129 @@
+#!/usr/bin/env bash
+# ─────────────────────────────────────────────────────────────────────
+# WORKING VERSION: v1.0 — 2026-05-19
+#
+# This file REPLACES the previous symlink ~/.local/bin/wl-paste →
+# /usr/bin/wl-paste with a transparent shim. It is what makes image
+# paste into Claude Code work on this box. Removing it (or restoring
+# the bare symlink) puts the system back into the broken state where
+# screenshots never attach. Companion files:
+#   - ~/.local/bin/tmux-paste-dispatch.sh  (v1.0)
+#   - ~/paste_image.sh                     (v1.0)
+#
+# Do NOT revert without a regression test of: PrtScr → right-click in
+# Claude pane → Paste → image attaches.
+#
+# Edit log:
+#   2026-05-19  shim created with xclip fallback + wedge cache (the
+#               cache suppresses dock flash by skipping real wl-paste
+#               calls while mutter is known-broken).
+# ─────────────────────────────────────────────────────────────────────
+# wl-paste shim — fall back to xclip when the real wl-paste returns empty,
+# AND skip the real wl-paste entirely while mutter is known-wedged so we
+# don't generate a "wl-clipboard ready" dock flash on every call.
+#
+# Why this exists: on GNOME-46/mutter this box's Wayland clipboard refuses
+# to expose contents to surfaceless clients (every wl-paste invocation
+# outside the focused surface returns 0 bytes), but a screenshot lands on
+# the X11/XWayland clipboard which xclip CAN read. Claude Code (and other
+# tools) read the clipboard via `wl-paste -t image/png` — that's why image
+# paste broke. This shim transparently passes through to the real wl-paste
+# first; if that yields nothing it queries xclip with the same target so
+# the caller gets the bytes regardless of which side actually owns the
+# selection.
+#
+# Flash suppression: every invocation of /usr/bin/wl-paste opens a Wayland
+# client which Ubuntu's dock shows as an "Unknown" gear icon. While mutter
+# is wedged that's pure cost — the call always returns empty. We cache the
+# wedge state for WEDGE_TTL seconds; subsequent invocations skip the real
+# wl-paste and exec xclip directly. Cache is invalidated as soon as a real
+# call succeeds, so mutter recovery is detected automatically.
+
+set -u
+
+REAL_WL_PASTE=/usr/bin/wl-paste
+WEDGE_CACHE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/clip-wayland-wedge"
+WEDGE_TTL="${WL_PASTE_SHIM_WEDGE_TTL:-30}"
+
+is_wedged_recently() {
+  [ -f "$WEDGE_CACHE" ] || return 1
+  local age now mt
+  now=$(date +%s)
+  mt=$(stat -c %Y "$WEDGE_CACHE" 2>/dev/null || echo 0)
+  age=$((now - mt))
+  [ "$age" -ge 0 ] && [ "$age" -lt "$WEDGE_TTL" ]
+}
+mark_wedged()  { : >"$WEDGE_CACHE" 2>/dev/null; }
+mark_healthy() { rm -f "$WEDGE_CACHE" 2>/dev/null; }
+
+# Parse args to know what to ask xclip for if wl-paste comes back empty.
+target=""
+list_only=0
+primary=0
+declare -a passthrough=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -t|--type)
+      target="$2"
+      passthrough+=("$1" "$2")
+      shift 2
+      ;;
+    -l|--list-types)
+      list_only=1
+      passthrough+=("$1")
+      shift
+      ;;
+    -p|--primary)
+      primary=1
+      passthrough+=("$1")
+      shift
+      ;;
+    --watch|-w|--seat|-s|--version|-v|--help|-h)
+      # Pass through with no fallback — these don't read clipboard data.
+      exec "$REAL_WL_PASTE" "$@"
+      ;;
+    *)
+      passthrough+=("$1")
+      shift
+      ;;
+  esac
+done
+
+xclip_selection=$([ "$primary" = "1" ] && echo primary || echo clipboard)
+
+# Build the xclip command appropriate for this invocation; we'll use it
+# either as a wedge-cache fast-path or as the post-wl-paste fallback.
+xclip_fallback() {
+  if [ "$list_only" = "1" ]; then
+    exec xclip -selection "$xclip_selection" -t TARGETS -o
+  elif [ -n "$target" ]; then
+    exec xclip -selection "$xclip_selection" -t "$target" -o
+  else
+    exec xclip -selection "$xclip_selection" -o
+  fi
+}
+
+# Wedge fast-path: if we recently confirmed real wl-paste returns empty,
+# skip it entirely — no dock flash, no 300ms wait.
+if is_wedged_recently; then
+  xclip_fallback
+fi
+
+# Run real wl-paste into a temp file (handles binary cleanly).
+# Timeout is 0.3s: on this box a healthy wl-paste returns in <50ms; if it
+# hasn't answered in 300ms it's wedged and waiting longer just adds
+# latency on every paste path.
+tmp=$(mktemp -t wl-paste-shim.XXXXXX)
+trap 'rm -f "$tmp"' EXIT
+timeout 0.3 "$REAL_WL_PASTE" "${passthrough[@]}" >"$tmp" 2>/dev/null
+real_rc=$?
+
+if [ -s "$tmp" ] && [ "$real_rc" = "0" ]; then
+  mark_healthy
+  cat "$tmp"
+  exit 0
+fi
+
+# Real wl-paste empty/failed — mark wedge and fall back to xclip.
+mark_wedged
+xclip_fallback

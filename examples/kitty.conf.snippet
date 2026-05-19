@@ -1,0 +1,23 @@
+# ── flashpaste kitty integration ───────────────────────────────────
+# Append this to ~/.config/kitty/kitty.conf and restart kitty.
+#
+# Why the no-arg invocation handles Ctrl+V: kitty's keybindings fire
+# on the physical keystroke BEFORE the byte reaches tmux. paste_image.sh
+# (no arg) runs `kitty @ action paste_from_clipboard`, which works for
+# text paste. For images, use Ctrl+Alt+V which sends a raw \026 byte
+# via `kitty @ send-text` so the inner TUI gets the keystroke directly.
+
+# Ctrl+V → text paste through kitty's clipboard action.
+map ctrl+v       launch --type=background --copy-env -- ~/paste_image.sh
+
+# Ctrl+Alt+V → image paste. Sends raw Ctrl-V byte to focused window;
+# flashpaste's wl-paste shim then delivers the image bytes from xclip
+# when the inner TUI reads the clipboard.
+map ctrl+alt+v   launch --type=background --copy-env -- ~/paste_image.sh image
+
+# Optional: bind PrtScr to GNOME's screenshot UI (file lands in
+# ~/Pictures/Screenshots/ — flashpaste's auto-pickup grabs it).
+map ctrl+shift+alt+s launch --type=background sh -c \
+  'dbus-send --session --dest=org.gnome.Shell --type=method_call \
+   /org/gnome/Shell org.gnome.Shell.Eval \
+   string:"Main.screenshotUI.open();"'
