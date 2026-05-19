@@ -1,0 +1,26 @@
+[package]
+name = "flashpaste"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Unified `flashpaste` CLI that wraps flashpasted, flashpaste-dispatch, flashpaste-trigger, flashpaste-shoot, flashpaste-mcp, and flashpaste-doctor behind one verb with subcommands."
+
+[[bin]]
+name = "flashpaste"
+path = "src/main.rs"
+
+# This crate is a thin process-launcher. We deliberately keep its dep tree
+# minimal — no tokio runtime, no wayland/x11/portal crates — so the cold
+# start of `flashpaste <subcmd>` is as cheap as a direct exec of the
+# wrapped binary.
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+# tokio is declared in the workspace deps and listed here per the spec.
+# This crate is currently a sync process-launcher so we don't drive a
+# runtime — keeping the dep keeps the door open for future async work
+# (e.g. parallel `daemon status` probing) without re-touching Cargo.toml.
+tokio = { workspace = true }

@@ -56,7 +56,7 @@ done
 # has been run. Falls back gracefully to bash-only if they don't exist.
 RS_RELEASE="$REPO_DIR/rs/target/release"
 if [ -d "$RS_RELEASE" ]; then
-  for bin in flashpasted flashpaste-dispatch flashpaste-shoot flashpaste-trigger flashpaste-mcp; do
+  for bin in flashpasted flashpaste-dispatch flashpaste-shoot flashpaste-trigger flashpaste-mcp flashpaste; do
     if [ -x "$RS_RELEASE/$bin" ]; then
       install -m 0755 "$RS_RELEASE/$bin" "$STAGE/usr/bin/$bin"
       say "  + Rust binary: $bin ($(stat -c%s "$RS_RELEASE/$bin") bytes)"

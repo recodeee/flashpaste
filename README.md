@@ -88,6 +88,24 @@ The snippets in `examples/` already wire Tier 3 with automatic fallback to Tier 
 
 ---
 
+## Unified CLI
+
+Since v1.19 there is one verb to remember: **`flashpaste`**. It wraps the six underlying binaries (still shipped, still callable directly) behind subcommands so users only have to memorize one entry point.
+
+| Subcommand | Wraps | Purpose |
+|---|---|---|
+| `flashpaste shoot [--interactive] [--output PATH] [--print-path] [--annotate]` | `flashpaste-shoot` | XDG-portal screenshot; stages into the daemon and/or saves to `~/Pictures/Screenshots/`. |
+| `flashpaste paste <PANE>` | `flashpaste-trigger <PANE>` | Trigger the Tier 3 paste into a tmux pane (e.g. `%4`). |
+| `flashpaste daemon {start\|stop\|restart\|status\|logs}` | `systemctl --user … flashpasted.service` | Lifecycle for the Tier 3 daemon. `logs` follows `journalctl --user -fu flashpasted.service`. |
+| `flashpaste doctor [--json]` | `flashpaste-doctor` (or `flashpaste-doctor.sh`) | The 13-probe environment check. |
+| `flashpaste mcp` | `flashpaste-mcp` | Start the MCP server on stdio (normally spawned by Claude Code / Cursor / etc.). |
+| `flashpaste dispatch <PANE>` | `flashpaste-dispatch <PANE>` | Tier 2 Rust one-shot paste (used when the daemon is intentionally disabled). |
+| `flashpaste version` | — | Print the build version. |
+
+The legacy binaries (`flashpasted`, `flashpaste-dispatch`, `flashpaste-trigger`, `flashpaste-shoot`, `flashpaste-mcp`, `flashpaste-doctor`) remain on `$PATH` — `flashpaste <subcmd>` simply spawns them with `Command::new(...)` and inherits stdio, so existing scripts, tmux/kitty snippets, and MCP configs keep working unchanged.
+
+---
+
 ## Install
 
 ### Option A — Debian / Ubuntu `.deb` *(recommended)*

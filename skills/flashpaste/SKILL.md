@@ -1,6 +1,6 @@
 ---
 name: flashpaste
-description: Use when the user wants to take a screenshot, paste an image into a terminal AI agent (Claude Code, Codex, Aider), hand content off between tmux panes, or debug clipboard issues on GNOME Wayland. flashpaste provides one CLI (`flashpaste-shoot`, `flashpaste-trigger`, `flashpaste-mcp`, `flashpaste-doctor`) plus an MCP server giving the agent real eyes (screenshots returned as PNG content) and hands (clipboard read/write + cross-pane paste).
+description: Use when the user wants to take a screenshot, paste an image into a terminal AI agent (Claude Code, Codex, Aider), hand content off between tmux panes, or debug clipboard issues on GNOME Wayland. flashpaste provides one unified CLI (`flashpaste shoot`, `flashpaste paste`, `flashpaste daemon`, `flashpaste doctor`, `flashpaste mcp`, `flashpaste dispatch`) plus an MCP server giving the agent real eyes (screenshots returned as PNG content) and hands (clipboard read/write + cross-pane paste).
 ---
 
 # Using flashpaste
@@ -15,31 +15,35 @@ When the user says "paste this screenshot into my terminal", "show this to Claud
 
 ## The CLI (humans + scripts)
 
-| Command | Purpose |
-|---|---|
-| `flashpaste-doctor` | 13 parallel environment checks (Wayland session, mutter, kitty, tmux, wl-clipboard, xclip, ydotool socket, screenshots dir, daemon socket, etc.). Run this first when anything misbehaves. |
-| `flashpaste-shoot [--interactive] [--print-path] [--output <PATH>]` | Captures the screen via XDG portal. Default: full-screen, saved to `~/Pictures/Screenshots/`. `--interactive` opens the portal's area picker. `--print-path` writes the saved path to stdout (useful for shell composition). |
-| `flashpaste-trigger <PANE>` | Trigger a paste of the current clipboard into `<PANE>` (e.g. `%4`). Goes through the daemon (~5 ms); falls back to the bash dispatch if the daemon is down. |
-| `flashpaste-dispatch <PANE>` | Same as the bash `tmux-paste-dispatch.sh` but in Rust (~40 ms). Used as a fallback when the daemon is intentionally disabled. |
-| `flashpaste-mcp` | The MCP server. Spawned by Claude Code / Cursor / etc. via the MCP config. Not meant for humans to call directly. |
+Since v1.19 the **primary** form is the unified `flashpaste <subcmd>` verb. The legacy binaries (`flashpaste-shoot`, `flashpaste-trigger`, `flashpaste-dispatch`, `flashpaste-mcp`, `flashpaste-doctor`, `flashpasted`) are still on `$PATH` and unchanged — `flashpaste` just dispatches to them with inherited stdio.
+
+| Command | Wraps | Purpose |
+|---|---|---|
+| `flashpaste doctor [--json]` | `flashpaste-doctor` | 13 parallel environment checks (Wayland session, mutter, kitty, tmux, wl-clipboard, xclip, ydotool socket, screenshots dir, daemon socket, etc.). Run this first when anything misbehaves. |
+| `flashpaste shoot [--interactive] [--output <PATH>] [--print-path] [--annotate]` | `flashpaste-shoot` | Captures the screen via XDG portal. Default: full-screen, saved to `~/Pictures/Screenshots/`. `--interactive` opens the portal's area picker. `--print-path` writes the saved path to stdout. |
+| `flashpaste paste <PANE>` | `flashpaste-trigger <PANE>` | Trigger a paste of the current clipboard into `<PANE>` (e.g. `%4`). Goes through the daemon (~5 ms); falls back to the bash dispatch if the daemon is down. |
+| `flashpaste dispatch <PANE>` | `flashpaste-dispatch <PANE>` | Same as the bash `tmux-paste-dispatch.sh` but in Rust (~40 ms). Used as a fallback when the daemon is intentionally disabled. |
+| `flashpaste daemon {start\|stop\|restart\|status\|logs}` | `systemctl --user` / `journalctl --user` against `flashpasted.service` | Lifecycle for the Tier 3 daemon. |
+| `flashpaste mcp` | `flashpaste-mcp` | The MCP server. Spawned by Claude Code / Cursor / etc. via the MCP config. Not meant for humans to call directly. |
+| `flashpaste version` | — | Print the build version. |
 
 ### Common CLI recipes
 
 ```bash
 # Take a screenshot of an area and copy its path:
-flashpaste-shoot --interactive --print-path
+flashpaste shoot --interactive --print-path
 
 # Take a screenshot and immediately paste into pane %4 (e.g. another agent):
-flashpaste-shoot && sleep 0.2 && flashpaste-trigger '%4'
+flashpaste shoot && sleep 0.2 && flashpaste paste '%4'
 
 # Capture, save to a named file, and print path:
-flashpaste-shoot --output ~/tmp/bug.png --print-path
+flashpaste shoot --output ~/tmp/bug.png --print-path
 
 # Run a full doctor before debugging paste issues:
-flashpaste-doctor
+flashpaste doctor
 
 # Tail the daemon log to see every paste event live:
-journalctl --user -fu flashpasted.service
+flashpaste daemon logs
 ```
 
 ### Listing tmux pane ids
@@ -98,14 +102,14 @@ Daemon route: sub-15 ms round-trip. Falls back to the bash dispatch if the daemo
 If image paste / screenshot tools aren't working, run these in order:
 
 ```bash
-flashpaste-doctor                                 # check the whole stack
-systemctl --user status flashpasted.service       # daemon alive?
+flashpaste doctor                                 # check the whole stack
+flashpaste daemon status                          # daemon alive?
 ls -la $XDG_RUNTIME_DIR/flashpaste.sock           # socket present?
-journalctl --user -u flashpasted -n 30 --no-pager # recent daemon events
+flashpaste daemon logs                            # tail recent daemon events
 pgrep -cx wl-copy                                 # phantom-icon pile-up?
 ```
 
-Most failures correspond to a `flashpaste-doctor` row going red. Read its output before guessing.
+Most failures correspond to a `flashpaste doctor` row going red. Read its output before guessing.
 
 ## See also
 
