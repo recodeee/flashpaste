@@ -41,22 +41,22 @@ use crate::state::{DaemonConfig, SharedState};
     name = "flashpasted",
     about = "flashpaste daemon: clipboard owner + paste dispatcher (Phase 2)"
 )]
-struct Args {
+pub(crate) struct Args {
     /// Override the unix socket path. Default `$XDG_RUNTIME_DIR/flashpaste.sock`.
     #[arg(long)]
-    socket: Option<PathBuf>,
+    pub(crate) socket: Option<PathBuf>,
     /// Override the screenshots dir to watch. Default `~/Pictures/Screenshots`.
     #[arg(long)]
-    screenshots_dir: Option<PathBuf>,
+    pub(crate) screenshots_dir: Option<PathBuf>,
     /// Disable inotify (useful for testing the IPC + dispatch path alone).
     #[arg(long)]
-    no_inotify: bool,
+    pub(crate) no_inotify: bool,
     /// Disable the Wayland clipboard owner.
     #[arg(long)]
-    no_wayland: bool,
+    pub(crate) no_wayland: bool,
     /// Disable the X11 clipboard owner.
     #[arg(long)]
-    no_x11: bool,
+    pub(crate) no_x11: bool,
 }
 
 fn main() -> Result<()> {

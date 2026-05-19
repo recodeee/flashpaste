@@ -23,9 +23,12 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io;
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, SystemTime};
+
+use nix::libc;
 
 use crate::paths::recursion_lock_path;
 
@@ -91,22 +94,30 @@ pub fn acquire_at(path: &Path) -> io::Result<Option<Guard>> {
 /// non-fatal — the lock will be stale-ish but the next invocation more
 /// than 2s later will refresh its mtime anyway.
 fn spawn_cleanup(path: &Path) {
-    // We use `sh -c` because we need shell-style `sleep ... ; rm -f ...`
-    // semantics. setsid detaches into a new session so the child survives
-    // this binary exiting (same trick the bash script uses for tmux rebind).
+    // We use `sh -c` for shell-style `sleep ...; rm -f ...` and call
+    // setsid() in pre_exec so the child gets its own session — that way
+    // SIGHUP from the dispatcher's closing pty can't reach it (same trick
+    // bash uses with `setsid -f`).
     let cmd = format!(
         "sleep {LOCK_CLEANUP_DELAY_SECS}; rm -f {}",
         shell_quote(path)
     );
-    let _ = Command::new("setsid")
-        .arg("-f")
-        .arg("sh")
+    let mut command = Command::new("sh");
+    command
         .arg("-c")
         .arg(&cmd)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn();
+        .stderr(Stdio::null());
+    // SAFETY: pre_exec runs between fork and execve; setsid is
+    // async-signal-safe (signal-safety(7)).
+    unsafe {
+        command.pre_exec(|| {
+            let _ = libc::setsid();
+            Ok(())
+        });
+    }
+    let _ = command.spawn();
 }
 
 /// Minimal POSIX shell quoter — safe single-quote escape. Lock paths come

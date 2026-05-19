@@ -1,0 +1,131 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" width="1200" height="540">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="user" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#FBBF24"/>
+      <stop offset="100%" stop-color="#F59E0B"/>
+    </linearGradient>
+    <linearGradient id="flash" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#F97316"/>
+      <stop offset="100%" stop-color="#DC2626"/>
+    </linearGradient>
+    <linearGradient id="tui" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#059669"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
+    </marker>
+    <style>
+      .lbl { font-family: ui-monospace, Menlo, monospace; fill: #E2E8F0; }
+      .h   { font-size: 17px; font-weight: 700; }
+      .s   { font-size: 12px; fill: #94A3B8; }
+      .t   { font-size: 11px; fill: #FBBF24; font-weight: 600; }
+      .box { stroke: #475569; stroke-width: 1.2; rx: 12; ry: 12; }
+    </style>
+  </defs>
+  <rect width="1200" height="540" fill="url(#bg)"/>
+
+  <!-- Title -->
+  <text x="600" y="40" text-anchor="middle" class="lbl" font-size="22" font-weight="800">
+    flashpaste — 120ms pipeline
+  </text>
+  <text x="600" y="65" text-anchor="middle" class="lbl s">
+    PrtScr → file → xclip → ydotool/kitty → TUI image-attach
+  </text>
+
+  <!-- Step 1: User triggers -->
+  <g transform="translate(40,110)">
+    <rect width="180" height="120" class="box" fill="url(#user)" fill-opacity="0.15"/>
+    <text x="90" y="30" text-anchor="middle" class="lbl h">User</text>
+    <text x="90" y="55" text-anchor="middle" class="lbl s">presses PrtScr</text>
+    <text x="90" y="75" text-anchor="middle" class="lbl s">right-clicks → Paste</text>
+    <text x="90" y="100" text-anchor="middle" class="t">T+0ms</text>
+  </g>
+
+  <!-- Step 2: GNOME writes file -->
+  <g transform="translate(260,110)">
+    <rect width="180" height="120" class="box" fill="#1E293B"/>
+    <text x="90" y="28" text-anchor="middle" class="lbl h">GNOME Screenshot</text>
+    <text x="90" y="55" text-anchor="middle" class="lbl s">~/Pictures/</text>
+    <text x="90" y="72" text-anchor="middle" class="lbl s">Screenshots/*.png</text>
+    <text x="90" y="100" text-anchor="middle" class="t">+~50ms (disk)</text>
+  </g>
+
+  <!-- Step 3: inotify watcher → preload -->
+  <g transform="translate(480,110)">
+    <rect width="220" height="120" class="box" fill="url(#flash)" fill-opacity="0.15"/>
+    <text x="110" y="28" text-anchor="middle" class="lbl h">flashpaste-watcher</text>
+    <text x="110" y="55" text-anchor="middle" class="lbl s">systemd .path triggers</text>
+    <text x="110" y="72" text-anchor="middle" class="lbl s">setsid xclip -i FILE</text>
+    <text x="110" y="100" text-anchor="middle" class="t">+~5-200ms (path vs Rust)</text>
+  </g>
+
+  <!-- Step 4: dispatch script fast path -->
+  <g transform="translate(740,110)">
+    <rect width="220" height="120" class="box" fill="url(#flash)" fill-opacity="0.15"/>
+    <text x="110" y="28" text-anchor="middle" class="lbl h">tmux-paste-dispatch</text>
+    <text x="110" y="55" text-anchor="middle" class="lbl s">tmux unbind C-v</text>
+    <text x="110" y="72" text-anchor="middle" class="lbl s">kitty @ send-text \026</text>
+    <text x="110" y="100" text-anchor="middle" class="t">+~70ms</text>
+  </g>
+
+  <!-- Step 5: TUI -->
+  <g transform="translate(1000,110)">
+    <rect width="160" height="120" class="box" fill="url(#tui)" fill-opacity="0.18"/>
+    <text x="80" y="30" text-anchor="middle" class="lbl h">Claude Code</text>
+    <text x="80" y="55" text-anchor="middle" class="lbl s">wl-paste shim</text>
+    <text x="80" y="72" text-anchor="middle" class="lbl s">→ xclip → bytes</text>
+    <text x="80" y="100" text-anchor="middle" class="t">image attached</text>
+  </g>
+
+  <!-- arrows -->
+  <line x1="220" y1="170" x2="260" y2="170" stroke="#94A3B8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="440" y1="170" x2="480" y2="170" stroke="#94A3B8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="700" y1="170" x2="740" y2="170" stroke="#94A3B8" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <line x1="960" y1="170" x2="1000" y2="170" stroke="#94A3B8" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- The mutter quirks lane (lower band) -->
+  <g transform="translate(40,300)">
+    <text x="0" y="0" class="lbl h" fill="#F87171">Stack quirks flashpaste papers over</text>
+    <g transform="translate(0,30)">
+      <rect width="270" height="80" class="box" fill="#7F1D1D" fill-opacity="0.2" stroke="#B91C1C"/>
+      <text x="14" y="22" class="lbl" font-size="13" font-weight="700">mutter</text>
+      <text x="14" y="42" class="lbl s">surfaceless wl-paste → 0 bytes</text>
+      <text x="14" y="60" class="lbl s">→ shim falls back to xclip</text>
+    </g>
+    <g transform="translate(290,30)">
+      <rect width="270" height="80" class="box" fill="#7F1D1D" fill-opacity="0.2" stroke="#B91C1C"/>
+      <text x="14" y="22" class="lbl" font-size="13" font-weight="700">wl-copy --paste-once</text>
+      <text x="14" y="42" class="lbl s">drained by any probe</text>
+      <text x="14" y="60" class="lbl s">→ pre-stage to durable xclip</text>
+    </g>
+    <g transform="translate(580,30)">
+      <rect width="270" height="80" class="box" fill="#7F1D1D" fill-opacity="0.2" stroke="#B91C1C"/>
+      <text x="14" y="22" class="lbl" font-size="13" font-weight="700">tmux bind -n C-v</text>
+      <text x="14" y="42" class="lbl s">eats synthesized Ctrl-V</text>
+      <text x="14" y="60" class="lbl s">→ unbind / send-text / rebind</text>
+    </g>
+    <g transform="translate(870,30)">
+      <rect width="270" height="80" class="box" fill="#7F1D1D" fill-opacity="0.2" stroke="#B91C1C"/>
+      <text x="14" y="22" class="lbl" font-size="13" font-weight="700">kitty map ctrl+v</text>
+      <text x="14" y="42" class="lbl s">intercepts keystrokes</text>
+      <text x="14" y="60" class="lbl s">→ kitty @ send-text bypass</text>
+    </g>
+  </g>
+
+  <!-- bottom row: ydotool 0.1.8 + dock icons -->
+  <g transform="translate(40,440)">
+    <rect width="540" height="60" class="box" fill="#7F1D1D" fill-opacity="0.15" stroke="#B91C1C"/>
+    <text x="14" y="22" class="lbl" font-size="13" font-weight="700">ydotool 0.1.8 (Ubuntu 24.04)</text>
+    <text x="14" y="42" class="lbl s">--socket-path is ignored AND wrong syntax → auto-patched by install.sh</text>
+  </g>
+  <g transform="translate(620,440)">
+    <rect width="540" height="60" class="box" fill="#7F1D1D" fill-opacity="0.15" stroke="#B91C1C"/>
+    <text x="14" y="22" class="lbl" font-size="13" font-weight="700">Ubuntu Dock phantom icons</text>
+    <text x="14" y="42" class="lbl s">→ NoDisplay .desktop files for wl-paste / wl-copy (v1.13)</text>
+  </g>
+</svg>

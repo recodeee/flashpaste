@@ -20,10 +20,11 @@ use anyhow::{Context, Result};
 use x11rb::atom_manager;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ConnectionExt, CreateWindowAux, EventMask, PropMode, SelectionNotifyEvent,
-    SelectionRequestEvent, WindowClass, SELECTION_NOTIFY_EVENT,
+    Atom, AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode,
+    SelectionNotifyEvent, SelectionRequestEvent, WindowClass, SELECTION_NOTIFY_EVENT,
 };
 use x11rb::protocol::Event;
+use x11rb::wrapper::ConnectionExt as _;
 use x11rb::CURRENT_TIME;
 
 /// How long to hold the selection before exiting voluntarily. The bash
@@ -40,9 +41,11 @@ atom_manager! {
         TIMESTAMP,
         INCR,
         ATOM,
-        // Image MIMEs. We register both even if only one is used.
-        b"image/png": IMAGE_PNG,
-        b"image/jpeg": IMAGE_JPEG,
+        // Image MIMEs. We register both even if only one is used so a
+        // polymorphic reader can pick its preferred format. Custom name
+        // form is `FIELD_IDENT: b"x11-name"`.
+        IMAGE_PNG: b"image/png",
+        IMAGE_JPEG: b"image/jpeg",
     }
 }
 
@@ -134,7 +137,7 @@ pub fn run(path: &Path, mime: &str, ready_fd: Option<i32>) -> Result<()> {
         // correct, we use poll_for_event (non-blocking) + a short sleep.
         match conn.poll_for_event()? {
             Some(event) => {
-                if handle_event(&conn, &atoms, win, mime_atom, &data, event)? {
+                if handle_event(&conn, &atoms, mime_atom, &data, event)? {
                     break;
                 }
             }
@@ -159,14 +162,13 @@ pub fn run(path: &Path, mime: &str, ready_fd: Option<i32>) -> Result<()> {
 fn handle_event(
     conn: &impl Connection,
     atoms: &Atoms,
-    win: u32,
     mime_atom: Atom,
     data: &[u8],
     event: Event,
 ) -> Result<bool> {
     match event {
         Event::SelectionRequest(req) => {
-            serve_request(conn, atoms, win, mime_atom, data, &req)?;
+            serve_request(conn, atoms, mime_atom, data, &req)?;
             Ok(false)
         }
         Event::SelectionClear(_) => {
@@ -184,7 +186,6 @@ fn handle_event(
 fn serve_request(
     conn: &impl Connection,
     atoms: &Atoms,
-    _win: u32,
     mime_atom: Atom,
     data: &[u8],
     req: &SelectionRequestEvent,
@@ -193,45 +194,36 @@ fn serve_request(
     let mut success = false;
 
     if req.target == atoms.TARGETS {
-        // Respond with the list of atoms we support. Each Atom is u32
-        // — change_property expects 32-bit format = 32 + len in elements.
+        // Respond with the list of atoms we support.
         let supported: [u32; 4] = [
             atoms.TARGETS,
             atoms.TIMESTAMP,
             mime_atom,
-            // Also advertise both image MIMEs so a polymorphic reader
-            // (Claude's wl-paste shim → xclip) can pick its preferred one.
+            // Also advertise the other image MIME so a polymorphic
+            // reader (Claude's wl-paste shim → xclip) can pick its
+            // preferred one.
             if mime_atom == atoms.IMAGE_PNG {
                 atoms.IMAGE_JPEG
             } else {
                 atoms.IMAGE_PNG
             },
         ];
-        // Convert &[u32] to &[u8] for change_property.
-        let mut bytes = Vec::with_capacity(supported.len() * 4);
-        for a in supported.iter() {
-            bytes.extend_from_slice(&a.to_ne_bytes());
-        }
-        conn.change_property(
+        conn.change_property32(
             PropMode::REPLACE,
             req.requestor,
             property,
             AtomEnum::ATOM,
-            32,
-            supported.len() as u32,
-            &bytes,
+            &supported,
         )?;
         success = true;
     } else if req.target == atoms.TIMESTAMP {
         // We claimed with CURRENT_TIME, so return CURRENT_TIME (0).
-        let zero = 0u32.to_ne_bytes();
-        conn.change_property(
+        let zero = [0u32; 1];
+        conn.change_property32(
             PropMode::REPLACE,
             req.requestor,
             property,
             AtomEnum::INTEGER,
-            32,
-            1,
             &zero,
         )?;
         success = true;
@@ -243,13 +235,11 @@ fn serve_request(
         // images under ~1MB this works fine on every X server. INCR
         // would handle larger payloads but typical screenshots are
         // 100-500KB.
-        conn.change_property(
+        conn.change_property8(
             PropMode::REPLACE,
             req.requestor,
             property,
             mime_atom,
-            8,
-            data.len() as u32,
             data,
         )?;
         success = true;
@@ -272,7 +262,7 @@ fn serve_request(
         target: req.target,
         property,
     };
-    conn.send_event(false, req.requestor, EventMask::NO_EVENT, notify)?;
+    conn.send_event(false, req.requestor, EventMask::NO_EVENT, &notify)?;
     conn.flush()?;
     Ok(())
 }

@@ -18,8 +18,8 @@ nix = { workspace = true }
 once_cell = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-tracing-appender = { workspace = true }
-tracing-subscriber = { workspace = true }
-x11rb = { workspace = true }
+# NOTE: x11rb is NOT used directly in flashpaste-common — the X11
+# selection event loop lives in the dispatch binary (re-exec target).
+# The library only exposes `clipboard::stage_image`, which spawns the
+# binary as a subcommand. Keeping the x11rb dep out of `common` shaves
+# build time for downstream crates that don't need X11.

@@ -22,22 +22,26 @@
 set -u
 
 readonly LOCK="/run/user/$(id -u)/clipboard-janitor.lock"
-# Asymmetric reaping:
+# Asymmetric reaping (TUNED v1.14 for the dock-icon pile-up):
 #   wl-paste (reader): a healthy read returns in <1s. Anything alive
 #     >REAP_PASTE_AFTER is stuck on mutter's focus-gating failure
 #     mode (it'll never get the selection). Aggressively reaping
-#     these unsticks Claude Code's paste flow within seconds —
-#     Claude probes via `wl-paste -l` with no timeout, so without
-#     us it sits at "pasting..." forever.
-#   wl-copy (owner): is supposed to stay alive holding clipboard
-#     until something supersedes it. Browser/screenshot/manual copy
-#     can legitimately live for minutes. Only reap genuine zombies
-#     (>REAP_COPY_AFTER) to avoid wiping a clipboard the user is
-#     about to paste from.
+#     these unsticks Claude Code's paste flow within seconds.
+#   wl-copy (owner): WAS 300s (5 minutes) to preserve clipboard for
+#     "user might paste later" cases. PROBLEM: every wl-copy is a
+#     Wayland client that Ubuntu Dock shows as an "Unknown" gear icon
+#     (because wl-copy is surfaceless and can't be matched to a
+#     .desktop). After 10 screenshots the dock fills up with 10+
+#     phantom icons that stay for 5 minutes.
+#     FIX: drop to 10s. flashpaste's pipeline (early-preload + image
+#     pre-stage to xclip) makes xclip the durable selection owner
+#     within 150ms of any screenshot, so the wl-copy daemon is
+#     redundant after that. Killing it 10s later just clears the
+#     dock icon — the image stays on xclip's unlimited-reads owner.
 # Sweep every INTERVAL seconds.
-readonly INTERVAL="${CLIPBOARD_JANITOR_INTERVAL:-5}"
+readonly INTERVAL="${CLIPBOARD_JANITOR_INTERVAL:-1}"
 readonly REAP_PASTE_AFTER="${CLIPBOARD_JANITOR_REAP_PASTE_AFTER:-8}"
-readonly REAP_COPY_AFTER="${CLIPBOARD_JANITOR_REAP_COPY_AFTER:-300}"
+readonly REAP_COPY_AFTER="${CLIPBOARD_JANITOR_REAP_COPY_AFTER:-3}"
 # Back-compat: if old REAP_AFTER is set, treat as wl-paste threshold.
 [ -n "${CLIPBOARD_JANITOR_REAP_AFTER:-}" ] && REAP_PASTE_AFTER="$CLIPBOARD_JANITOR_REAP_AFTER"
 

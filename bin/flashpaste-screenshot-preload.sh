@@ -65,3 +65,19 @@ esac
 setsid -f xclip -selection clipboard -t "$mime" -i "$latest" >/dev/null 2>&1
 printf '%s' "$mtime" >"$STATE" 2>/dev/null
 clog "ss-preload" "event=loaded" "path='$latest'" "age_s=$age" "mime='$mime'"
+
+# Event-driven dock-icon cleanup. xclip is now the durable selection
+# owner — any wl-copy daemons (from GNOME's screenshot tool or earlier
+# screenshots) are redundant and just clutter Ubuntu Dock with phantom
+# "Unknown" gear icons. Give xclip 200ms to fully claim the selection,
+# then SIGTERM every wl-copy. Cuts dock icons within ~250ms of
+# screenshot, vs the janitor's polling-interval-bounded latency.
+(
+  sleep 0.2
+  killed=$(pgrep -x wl-copy | tr '\n' ' ')
+  if [ -n "$killed" ]; then
+    pgrep -x wl-copy | xargs -r kill -TERM 2>/dev/null
+    clog "ss-preload" "event=killed-wl-copy" "pids='$killed'"
+  fi
+) </dev/null >/dev/null 2>&1 &
+disown 2>/dev/null || true

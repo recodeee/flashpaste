@@ -231,6 +231,41 @@ map ctrl+alt+print   launch --type=background -- flashpaste-shoot --interactive
 
 Or run directly: `flashpaste-shoot --print-path` writes the path to stdout for shell composition. Pass `--no-daemon` to skip the daemon-stage attempt and only drop the PNG on disk (the existing `.path` watcher pre-loads it into xclip anyway).
 
+## Rust fast path (experimental)
+
+`flashpaste-dispatch` (under `rs/flashpaste-dispatch/`) is a Rust drop-in replacement for `bin/tmux-paste-dispatch.sh`'s fast path. **Target: under 40ms paste-to-byte latency**, down from the bash fast path's ~127ms. The two wins:
+
+1. The X11 selection is claimed in-process via `x11rb` and a detached subcommand, with a pipe-handshake readiness signal — no `setsid xclip ... &` plus blind 50ms `sleep`.
+2. Kitty's RC protocol is spoken directly over the unix socket (DCS envelope + JSON command), eliminating the ~25ms Python startup cost of forking `kitty @ send-text`.
+
+It falls back to the bash slow path (this very script) when no fresh screenshot is detected, so the behavioural surface area stays small.
+
+### Enabling (opt-in)
+
+Phase 1 is opt-in — building it is gated on user approval, the install does NOT happen automatically.
+
+```bash
+# Build (release profile, LTO, strip)
+cd ~/.local/share/flashpaste/rs
+cargo build --release -p flashpaste-dispatch
+
+# Symlink the binary
+ln -sf "$(pwd)/target/release/flashpaste-dispatch" ~/.local/bin/flashpaste-dispatch
+
+# Switch the tmux binding (replace the bash path with the Rust binary):
+#
+#   bind -n C-v run-shell -b "TMUX_PASTE_TRIGGER=ctrl-v /home/$USER/.local/bin/flashpaste-dispatch '#{pane_id}'"
+#
+# Reload tmux config
+tmux source-file ~/.tmux.conf
+```
+
+To revert, point the `bind -n C-v` line back at `tmux-paste-dispatch.sh` — the bash script and the Rust binary are side-by-side and either can be the active dispatcher at any time.
+
+### Telemetry
+
+Same env vars as bash: `FLASHPASTE_QUIET=1` to silence, `FLASHPASTE_TRACE=1` to write the JSON sink to `~/.local/state/flashpaste-trace.jsonl`. Human log is at `~/.local/state/flashpaste-paste.log` by default (override with `FLASHPASTE_LOG`).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

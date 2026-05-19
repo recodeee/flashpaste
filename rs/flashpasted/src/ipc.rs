@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -53,19 +53,6 @@ enum Request {
         image_path: String,
     },
     Ping,
-}
-
-#[derive(Debug, Serialize)]
-struct OkResponse<'a> {
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    latency_ms: Option<u128>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    deduped: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reason: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    fallback: Option<&'a str>,
 }
 
 pub async fn spawn_listener(state: Arc<SharedState>) -> Result<JoinHandle<()>> {
