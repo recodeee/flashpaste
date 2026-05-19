@@ -159,9 +159,9 @@ if [ "$KEEP_COUNT" -eq 0 ]; then
 fi
 
 # Percentile pass. Prefer gawk when present (true multi-dim arrays).
-AWK_BIN=awk
+AWK_BIN='awk'
 if command -v gawk >/dev/null 2>&1; then
-  AWK_BIN=gawk
+  AWK_BIN='gawk'
 fi
 
 "$AWK_BIN" -v keep_count="$KEEP_COUNT" -v keepfile="$TMP_KEEP" '

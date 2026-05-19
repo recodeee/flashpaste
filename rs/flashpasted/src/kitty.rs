@@ -62,7 +62,16 @@ pub async fn send_ctrl_v(socket: &Path, version: KittyVersion) -> Result<()> {
         "version": [version.major, version.minor, version.patch],
         "payload": {
             "data": CTRL_V,
-            "match": "state:focused",
+            // `state:active` matches the active window in each tab
+            // (independent of OS focus). `state:focused` was the previous
+            // value but matches NOTHING when kitty has no OS focus at the
+            // exact moment of dispatch — which happens after screenshot
+            // tools, right-click menu rendering, or any focus steal. With
+            // `state:active` the byte still lands in the user's working
+            // window. (`recent:0` looks superficially correct but fails
+            // when kitty's recency log is empty, e.g. fresh single-window
+            // sessions where `recent=None`.)
+            "match": "state:active",
         },
     });
     let json_bytes = serde_json::to_vec(&payload)?;

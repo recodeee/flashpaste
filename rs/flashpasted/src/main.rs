@@ -89,6 +89,16 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     });
+    // Bound the runtime drop. The x11, wayland, and inotify owners run on
+    // `spawn_blocking` threads with infinite loops and no shutdown check —
+    // a natural `rt` drop would wait on them forever. Without this, systemd
+    // hangs the unit in `deactivating (stop-sigterm)` for the full 90s
+    // TimeoutStopSec, then SIGKILLs. During that window the IPC listener is
+    // aborted but the socket file still exists, so `flashpaste-trigger`
+    // gets ECONNREFUSED on connect and the user sees paste as "broken"
+    // after every restart. 500ms is plenty to flush in-flight work; the
+    // blocking threads get torn down by process exit.
+    rt.shutdown_timeout(std::time::Duration::from_millis(500));
     Ok(())
 }
 

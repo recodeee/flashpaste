@@ -6,7 +6,7 @@
 //! clipboard owners + paste dispatcher read.
 
 use std::path::PathBuf;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -16,10 +16,12 @@ use tokio::sync::{watch, RwLock};
 use crate::Args;
 
 /// How fresh a staged image must be before the daemon will use it for a
-/// paste op. Matches the bash dispatcher's 30s screenshot age gate but is
-/// more generous (2 minutes) because once the daemon owns the clipboard the
-/// image stays valid until something supersedes it.
-pub const STAGED_IMAGE_TTL_SECS: u64 = 120;
+/// paste op. Bash dispatcher uses a 30s file-age gate; the daemon is more
+/// generous because once we own the clipboard the image stays valid until
+/// something supersedes it. 30 minutes covers the common AFK-then-paste
+/// case (took a screenshot, switched away, came back) without the daemon
+/// silently punting to bash and surprising the user.
+pub const STAGED_IMAGE_TTL_SECS: u64 = 1800;
 
 /// Text selections live as long as someone is owning the clipboard. Match
 /// typical desktop UX: a copy is "fresh" for the rest of the session.
@@ -155,6 +157,13 @@ pub struct SharedState {
     /// last `paste` op the daemon handled. A new paste op within 1500ms is
     /// rejected as deduped (replies `{"ok":true,"deduped":true}`).
     pub last_paste_ms: AtomicU64,
+    /// True while a paste dispatch is in flight (including the
+    /// `wait_for_pane_idle` hold). Subsequent paste requests during that
+    /// window dedupe immediately instead of stacking — without this guard,
+    /// 4–5 presses while Claude is mid-generation each spawn their own
+    /// wait task and all dispatch \026 simultaneously when Claude becomes
+    /// idle.
+    pub paste_in_flight: AtomicBool,
 }
 
 impl SharedState {
@@ -167,6 +176,7 @@ impl SharedState {
             stage_notifier_tx: tx,
             stage_notifier_rx: rx,
             last_paste_ms: AtomicU64::new(0),
+            paste_in_flight: AtomicBool::new(false),
         }
     }
 
@@ -244,11 +254,15 @@ fn default_screenshots_dir() -> Option<PathBuf> {
 /// short-circuits anyway. If the user wants the rebind to point at
 /// `flashpaste-trigger` instead, they edit `examples/tmux.conf.snippet`.
 fn default_tmux_rebind_command() -> String {
-    // Single quotes inside double quotes inside the shell command — keep this
-    // identical to the bash script so the user can A/B between daemon and
-    // bash without resourcing tmux.conf.
+    // Match the user's tmux.conf binding exactly: prefer the daemon trigger
+    // and fall back to the bash dispatcher via `||`. Before this, the
+    // default rebound to bash-only after every paste, silently demoting
+    // Tier 3 → Tier 1 for the rest of the tmux session (until the user
+    // re-sourced ~/.tmux.conf).
     String::from(
         "tmux bind -n C-v run-shell -b \"TMUX_PASTE_TRIGGER=ctrl-v \
+         flashpaste-trigger '#{pane_id}' 2>/dev/null || \
+         TMUX_PASTE_TRIGGER=ctrl-v \
          /home/deadpool/.local/bin/tmux-paste-dispatch.sh '#{pane_id}'\"",
     )
 }

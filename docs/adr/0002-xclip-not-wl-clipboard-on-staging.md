@@ -31,11 +31,13 @@ In Tier 3, the daemon is long-lived and surfaceless-but-persistent, so it can ho
 ## Consequences
 
 **Positive.**
+
 - The X11 path works on every GNOME/Wayland box because XWayland is universal; no edge cases for users without it.
 - xclip's detached-owner model decouples staging from dispatcher lifetime — exit-after-stage is safe.
 - mutter's bridge does the cross-world replication for free.
 
 **Negative.**
+
 - Requires `xclip` (Tier 1) and a live XWayland server (all tiers). Documented in install requirements.
 - The X11→Wayland bridge is *sticky* (see ADR 0004); we have to compensate with a Wayland-authoritative `has_image` policy when reading.
 

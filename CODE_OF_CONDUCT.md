@@ -10,7 +10,7 @@ The Covenant applies to all project spaces — the repository, issue tracker, pu
 
 ## Reporting
 
-If you believe someone is acting in violation of the Code of Conduct, email the maintainer at **webubusiness@gmail.com** with subject `flashpaste conduct`. Reports are handled in confidence. The maintainer will acknowledge receipt within 72 hours and respond with a resolution or update within 14 days.
+If you believe someone is acting in violation of the Code of Conduct, email the maintainer at **<webubusiness@gmail.com>** with subject `flashpaste conduct`. Reports are handled in confidence. The maintainer will acknowledge receipt within 72 hours and respond with a resolution or update within 14 days.
 
 Anyone may report. You do not need to be the target of the behaviour.
 

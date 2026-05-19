@@ -28,9 +28,17 @@ mkdir -p "$BIN_DST"
 for script in tmux-paste-dispatch.sh clipboard-set.sh clipboard-janitor.sh \
               get-clipboard-text.sh clip-pipeline-log.sh screenshot-to-clipboard \
               flashpaste-screenshot-preload.sh flashpaste-doctor.sh \
-              flashpaste-trace.sh; do
+              flashpaste-trace.sh flashpaste-logs.sh; do
   src="$BIN_SRC/$script"
-  dst="$BIN_DST/$script"
+  # Drop the .sh suffix on the destination for the user-facing log viewer
+  # so `flashpaste-logs` is what shows up on $PATH (matches the muscle
+  # memory of `flashpaste-trigger`, `flashpaste-doctor`, etc.). Other
+  # scripts in this loop keep their suffix because they're called
+  # internally by name.
+  case "$script" in
+    flashpaste-logs.sh) dst="$BIN_DST/flashpaste-logs" ;;
+    *)                  dst="$BIN_DST/$script"          ;;
+  esac
   if [ -e "$dst" ] && [ ! -L "$dst" ]; then
     warn "$dst already exists as a real file; backing up to $dst.flashpaste-bak"
     mv "$dst" "$dst.flashpaste-bak"

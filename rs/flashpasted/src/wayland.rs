@@ -18,6 +18,7 @@
 //!   and continue. X11 ownership in the sibling module is the backup.
 
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -31,6 +32,13 @@ use crate::state::{SharedState, StagedSelection};
 /// phase), this hides the clipboard owner from the GNOME dock instead of
 /// showing it as "Unknown".
 pub const APP_ID: &str = "org.flashpaste.daemon";
+
+/// Latched once the compositor proves it doesn't speak any data-control
+/// protocol (e.g. Mutter on GNOME 46). After that, every stage event would
+/// just `spawn_blocking` a doomed `copy_multi` that immediately errors and
+/// fills the journal. Latching here lets the paste re-assert path skip the
+/// blocking task entirely — only X11 is doing useful work on this box.
+static WAYLAND_WEDGED: AtomicBool = AtomicBool::new(false);
 
 pub fn spawn_owner(state: Arc<SharedState>) {
     // Dedicated task — wl-clipboard-rs's blocking `copy()` is moved onto
@@ -88,6 +96,16 @@ async fn run_owner(state: Arc<SharedState>) {
             }
         };
 
+        // Mutter on GNOME 46 doesn't implement `ext-data-control` /
+        // `wlr-data-control`. Once we've observed that, every further
+        // `copy_multi` call is guaranteed to error with the same protocol
+        // message — skip it entirely instead of paying spawn_blocking +
+        // wl-clipboard-rs setup cost on every paste re-assert.
+        if WAYLAND_WEDGED.load(Ordering::Relaxed) {
+            debug!("Wayland: skipping copy() — compositor has no data-control protocol");
+            continue;
+        }
+
         // Move the blocking `copy()` call to a dedicated blocking thread so
         // the executor stays responsive while the Wayland event loop runs.
         // The `wl-clipboard-rs` crate internally forks/threads its own
@@ -102,11 +120,23 @@ async fn run_owner(state: Arc<SharedState>) {
                 debug!("Wayland: ownership installed");
             }
             Ok(Err(e)) => {
-                // Mutter wedge case. Don't crash — X11 owner is our backup.
-                warn!(
-                    error = %e,
-                    "Wayland copy() failed (likely Mutter wedge); continuing with X11 only"
-                );
+                let msg = e.to_string();
+                // Latch only on the "compositor lacks protocol" failure
+                // mode — that one is permanent. Transient claim rejections
+                // (focus races etc.) should keep retrying on next stage.
+                if msg.contains("ext-data-control") || msg.contains("wlr-data-control") {
+                    if !WAYLAND_WEDGED.swap(true, Ordering::Relaxed) {
+                        warn!(
+                            error = %e,
+                            "Wayland copy() failed: compositor has no data-control protocol — latching off, X11 owner will handle paste"
+                        );
+                    }
+                } else {
+                    warn!(
+                        error = %e,
+                        "Wayland copy() failed (likely Mutter wedge); continuing with X11 only"
+                    );
+                }
             }
             Err(e) => {
                 error!(error = %e, "Wayland blocking task panicked");

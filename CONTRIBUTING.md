@@ -40,7 +40,7 @@ Quoted verbatim from [`AGENTS.md`](AGENTS.md). If a patch might affect any of th
 
 Follow the existing v1.10–v1.19 voice. Subject + body + trailer:
 
-```
+```text
 v1.X: <one-line summary>
 
 <multi-paragraph body explaining what changed and why,

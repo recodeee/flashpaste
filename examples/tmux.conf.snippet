@@ -48,12 +48,13 @@ bind -n MouseDown2Pane run-shell -b "buf=$(sh -c '#{@paste}'); if [ -n \"$buf\" 
 # env var so ~/.local/state/flashpaste-trigger.log can distinguish the
 # right-click path from the C-v path during debugging.
 #
-# No `-O` flag: the menu auto-dismisses on click-outside / mouse-release
-# outside the menu, matching native GUI menus. Escape still closes it,
-# and item-selection still works. With `-O` the menu stuck open until
-# Escape, which read as the pane being "frozen" after a right-click —
-# visible in TUIs like Claude Code that grab keystrokes (v1.22).
-bind -n MouseDown3Pane display-menu -x M -y M \
+# `-O` keeps the menu open until the user clicks an item, clicks
+# outside the menu, or hits Escape — native GUI behaviour. v1.22
+# removed it on the theory that `-O` froze TUIs like Claude Code
+# until Escape; that reproduced on tmux <3.4 only, and removing `-O`
+# made the menu hide as soon as the mouse moved toward an entry,
+# which is worse. v1.23 restores it.
+bind -n MouseDown3Pane display-menu -O -x M -y M \
   -T "#[align=centre,fg=#FFFFFF,bold] pane #{pane_index} " \
   "#[fg=#34C759]↳ Paste" p \
     "run-shell -b \"TMUX_PASTE_TRIGGER=right-click-menu flashpaste-trigger '#{pane_id}' 2>/dev/null || TMUX_PASTE_TRIGGER=right-click-menu /home/$USER/.local/bin/tmux-paste-dispatch.sh '#{pane_id}'\""

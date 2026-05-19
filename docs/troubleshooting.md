@@ -70,7 +70,7 @@ flashpaste-trace.sh --since 2026-05-19T12:00Z
 
 ## Step 4 — Diagnostic flowchart
 
-```
+```text
 "Image paste isn't working"
         │
         ▼
@@ -115,7 +115,7 @@ journalctl --user -u flashpasted -n 50           # Last 50 log lines
 
 A healthy daemon reports each subsystem on startup:
 
-```
+```text
 flashpasted starting (socket=/run/user/1000/flashpaste.sock)
   ✓ Wayland selection owner ready
   ✓ X11 selection owner ready

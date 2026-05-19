@@ -31,10 +31,12 @@ In Tier 2 we go further and speak the kitty RC protocol (`\x1bP@kitty-cmd…\x1b
 ## Consequences
 
 **Positive.**
+
 - Image-paste works at all. This was the unblocking finding.
 - The kitty socket transport is faster than `tmux send-keys` even setting aside correctness.
 
 **Negative.**
+
 - Hard runtime dependency on kitty with `allow_remote_control yes` (or a listen socket configured). Documented in `docs/install.md`.
 - A user on a different terminal (Alacritty, foot, Ghostty) cannot use FlashPaste's image path. Mitigated only by them switching terminals; text paste is unaffected.
 

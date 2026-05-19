@@ -81,7 +81,7 @@ Stable `app_id`: one persistent Wayland client instead of N short-lived `wl-past
 
 CLI flags:
 
-```
+```text
 flashpasted [--socket PATH] [--screenshots-dir PATH]
             [--no-inotify] [--no-wayland] [--no-x11]
 ```
@@ -100,7 +100,7 @@ What the trigger does, end-to-end:
 
 ### Wire protocol
 
-```
+```text
 ┌──────────┬──────────────────────────────────┐
 │ u32 LE   │ JSON body                        │
 │ length   │ {"op":"paste","pane":"%2",       │
@@ -143,7 +143,7 @@ End-to-end Print → ready: ~250 ms, vs ~3 s for the GNOME Screenshot UI flow.
 
 CLI:
 
-```
+```text
 flashpaste-shoot [--interactive] [--no-daemon] [--output PATH]
                  [--print-path] [--timeout-ms N] [-v|--verbose]
 ```
@@ -156,7 +156,7 @@ Status: experimental. See [use-cases.md](use-cases.md#agent-driven-screenshots-v
 
 ## Repo layout
 
-```
+```text
 bin/                  Bash hot path (Tier 1) — canonical, always works
 rs/                   Rust workspace
   flashpaste-common/  Shared library (paths, clipboard, kitty IPC, tmux, logging)

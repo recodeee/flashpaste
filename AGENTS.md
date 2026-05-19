@@ -32,7 +32,8 @@ The repo has `.github/workflows/release.yml` that auto-builds the .deb and publi
    - Any other file with a `v1.X` literal — `git grep -F 'v1.'`
 
 2. **Commit message format:**
-   ```
+
+   ```text
    v1.X: <one-line summary>
 
    <multi-paragraph body explaining what changed and why,
@@ -40,34 +41,42 @@ The repo has `.github/workflows/release.yml` that auto-builds the .deb and publi
 
    Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
    ```
+
    Use `git log --pretty=fuller` to confirm the trailer is preserved.
 
 3. **Tag + push — same turn as the commit, never deferred:**
+
    ```bash
    git push origin main
    git tag -a v1.X -m "v1.X: <one-line summary>" <commit-sha>
    git push origin v1.X
    ```
+
    The `<commit-sha>` is explicit so you tag the exact commit you just pushed, not HEAD (HEAD may have moved if the user committed in parallel).
 
 4. **The workflow handles the release.** Confirm with:
+
    ```bash
    gh run watch $(gh run list --workflow=release.yml --limit 1 --json databaseId -q '.[0].databaseId')
    gh release view v1.X
    ```
+
    Workflow runs ~3 minutes (cargo build dominates). If the workflow fails, **investigate before ending the turn** — a failed release isn't optional cleanup, it's part of the bump.
 
 5. **If the workflow is absent** (early commits, or the file got deleted), fall back to manual:
+
    ```bash
    gh release create v1.X \
      --title "flashpaste v1.X" \
      --notes "$(git log -1 --pretty=%B v1.X | tail -n +3)"
    ```
+
    Add `--prerelease` for experimental builds; add the .deb as an asset arg when you have one built.
 
 ### Backfill policy
 
 If you find untagged version commits in history (`v1.10`–`v1.14` are this case — they predate the .deb workflow), **do not retroactively tag them by default**. Reasons:
+
 - The workflow doesn't exist on those commits → tag push fails the build job.
 - Their build-deb.sh / Rust workspace may not exist or compile.
 - Auto-generated release notes for ancient tags add noise to the Releases page.
@@ -88,7 +97,7 @@ If the user explicitly asks for backfill, push tags one-by-one and use `gh relea
 
 ## Where work lives
 
-```
+```text
 bin/                  bash hot path (canonical, always works)
 rs/                   Rust workspace — flashpaste-{common,dispatch,trigger,shoot} + flashpasted
 share/applications/   NoDisplay .desktop files for surfaceless Wayland clients
@@ -133,6 +142,7 @@ Per `/home/deadpool/.claude/CLAUDE.md`, three memory systems coexist on this mac
 ## Parallel-agent workflow
 
 When dispatching multiple agents:
+
 - Each agent owns disjoint file paths (no cross-edits).
 - Pre-create shared scaffolding (e.g. `rs/Cargo.toml` workspace root) before dispatching so agents don't race on it.
 - Agents that need types/wire-formats from sibling crates should duplicate small helpers inline rather than depend across in-flight crates. Refactor to a shared crate after all agents land.
@@ -141,6 +151,7 @@ When dispatching multiple agents:
 ## Release notes voice
 
 Match the existing v1.10–v1.14 voice:
+
 - Lead with what the change does.
 - One paragraph per concern, no bullets unless it's a list of bug-fixes.
 - Cite specific commit hashes / log timestamps / observation IDs when relevant.

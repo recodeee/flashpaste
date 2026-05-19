@@ -37,7 +37,7 @@ ensure_env() {
     while IFS= read -r -d '' kv; do
       case "$kv" in
         WAYLAND_DISPLAY=*|DISPLAY=*|XDG_RUNTIME_DIR=*|DBUS_SESSION_BUS_ADDRESS=*|XAUTHORITY=*)
-          export "$kv"
+          export "${kv?}"
           ;;
       esac
     done < "/proc/$pid/environ"
@@ -68,7 +68,37 @@ if [ -S "$_sock" ] && command -v flashpaste-trigger >/dev/null 2>&1; then
   clog "clipboard-set" "event=daemon-declined" "backend=flashpasted"
 fi
 
-if [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# AGENT-LOCKED — DO NOT REVERT THIS GATE  (locked 2026-05-19 by user)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# This block is intentionally gated behind FLASHPASTE_USE_WL_COPY=1.
+#
+# WHY (live diagnosis on this box, GNOME 46 + Mutter):
+#   • wl-copy is surfaceless. Mutter cannot bind it to the NoDisplay
+#     `wl-copy.desktop` (no app_id, no X11 WM_CLASS), so every spawn
+#     leaves a phantom "Unknown" gear icon in the Ubuntu Dock for up
+#     to 5 minutes (until clipboard-janitor reaps).
+#   • Wayland clipboard is already WAYLAND_WEDGED on Mutter (latched
+#     in rs/flashpasted/src/wayland.rs — Mutter ships neither
+#     ext-data-control nor wlr-data-control). So wl-copy can't even
+#     act as a durable selection owner here. It was ALL COST, NO
+#     BENEFIT: dock noise + 4–5 extra fork-execs per paste.
+#   • The xclip fallback below is the durable owner on this box. The
+#     wl-paste shim in ~/.local/bin/wl-paste already routes through it.
+#
+# OTHER AGENTS / FUTURE EDITORS — READ FIRST:
+#   ✗ Do NOT remove this gate.
+#   ✗ Do NOT lower the default (the explicit "=1" matters — an empty
+#     env must fall through to xclip).
+#   ✗ Do NOT "fix" by adding the wl-copy.desktop again — already there;
+#     Mutter can't bind a surfaceless client to a .desktop file.
+#   ✓ To re-enable on wlroots / KDE / a sway box where wl-copy works,
+#     export FLASHPASTE_USE_WL_COPY=1 in the shell that calls this.
+#
+# Speed: removing this path also drops 4–5 fork-execs per paste
+# (pgrep + cat + ps + kill + setsid wl-copy) → straight to xclip.
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if [ "${FLASHPASTE_USE_WL_COPY:-0}" = "1" ] && [ -n "${WAYLAND_DISPLAY:-}" ] && command -v wl-copy >/dev/null 2>&1; then
   clog "clipboard-set" "event=backend-chosen" "backend=wl-copy"
   # Reap the previous wl-copy daemon this script spawned. wl-copy stays
   # alive holding the selection until something supersedes it; on this

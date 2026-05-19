@@ -47,7 +47,7 @@ ensure_env() {
     while IFS= read -r -d '' kv; do
       case "$kv" in
         WAYLAND_DISPLAY=*|DISPLAY=*|XDG_RUNTIME_DIR=*|DBUS_SESSION_BUS_ADDRESS=*|XAUTHORITY=*)
-          export "$kv" ;;
+          export "${kv?}" ;;
       esac
     done < "/proc/$pid/environ"
     break

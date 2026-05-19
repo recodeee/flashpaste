@@ -32,11 +32,13 @@ The tiers are wire-compatible at the tmux binding: a user can flip between them 
 ## Consequences
 
 **Positive.**
+
 - Tier 1 acts as a permanent safety net — every higher tier is a strict latency optimization with the same observable behavior.
 - A failed `flashpasted` deployment degrades gracefully to Tier 1; the user notices a latency change, not a broken paste.
 - New contributors can read the bash script first to understand the protocol, then look at the Rust to understand the optimization.
 
 **Negative.**
+
 - Triple maintenance burden: behavior fixes have to land in three places. Mitigated by the regression-test discipline in `AGENTS.md` (every fix that affects a hard-won fact needs a manual test plan in the commit body).
 - Three latency tiers in the docs require explaining the tradeoffs (`docs/architecture.md` does this).
 

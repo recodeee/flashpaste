@@ -36,11 +36,13 @@ This is hard-won fact #2 in `AGENTS.md`.
 ## Consequences
 
 **Positive.**
+
 - No infinite recursion under any timing.
 - The user's next keystroke (~100 ms+ later in human reaction time) reliably sees the binding active again.
 - The `setsid -f` detach means the dispatcher exits cleanly — the rebind isn't blocked on the dispatcher staying alive.
 
 **Negative.**
+
 - There is a ~100 ms window where root-table C-v is unbound. If the user mashes paste twice within that window, the second press is a literal Ctrl-V in whichever app has focus. The lock file at `$XDG_RUNTIME_DIR/tmux-paste-dispatch.lock` is the belt-and-braces guard: even if the second press *does* arrive while the binding is still active (e.g. rebind got there first), the lock no-ops the second invocation.
 - The 100 ms sleep is a tunable; lowering it reduces the unbound window but risks racing the kitty IPC round-trip and re-arming before the byte is delivered.
 

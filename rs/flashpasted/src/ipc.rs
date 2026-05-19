@@ -180,6 +180,20 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
     // load sees the new timestamp.
     state.last_paste_ms.store(now, Ordering::Relaxed);
 
+    // In-flight guard: while a dispatch is waiting on Claude to become
+    // idle, additional paste presses must not spawn parallel dispatches
+    // — otherwise 4 queued presses all fire \026 simultaneously when
+    // Claude unblocks (observed in journalctl with elapsed_ms=1853,
+    // 7600, 16245, 26733 all dispatching within a single second). Skip
+    // here; the actively-waiting dispatch will serve the user's intent.
+    if state
+        .paste_in_flight
+        .swap(true, Ordering::AcqRel)
+    {
+        info!(pane, "paste: another dispatch in flight — dropping duplicate");
+        return json!({ "ok": true, "deduped": true, "reason": "in-flight" });
+    }
+
     // ─── Freshness check ─────────────────────────────────────────────
     // Daemon-handled paste requires a staged IMAGE. Text on the
     // clipboard is fine — kitty's own paste_from_clipboard handles it via

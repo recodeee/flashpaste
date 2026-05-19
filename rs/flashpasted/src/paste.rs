@@ -78,6 +78,18 @@ pub async fn dispatch_image_paste(
     // Step 1: select pane. Best-effort.
     tmux::select_pane(&pane).await;
 
+    // Step 1.5: if the user wheel-scrolled the pane into copy-mode, the
+    // \026 byte we're about to send would be swallowed by copy-mode's key
+    // handler and silently lost. Cancel it first.
+    tmux::cancel_copy_mode_if_active(&pane).await;
+
+    // Step 1.6: if Claude Code is mid-generation, the TUI freezes its
+    // input handling and the \026 byte we're about to send gets dropped
+    // on the floor. The user's contract is "paste always works" — hold
+    // the dispatch until the TUI is idle. Cap the wait at 30 s so a
+    // false-negative detector or a non-Claude pane can't hang us.
+    tmux::wait_for_pane_idle(&pane, Duration::from_secs(30)).await;
+
     // Step 2: unbind -n C-v. Must happen synchronously before the byte
     // reaches tmux.
     tmux::unbind_c_v().await.context("tmux unbind -n C-v")?;

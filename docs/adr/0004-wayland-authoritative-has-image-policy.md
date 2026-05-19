@@ -37,10 +37,12 @@ This is hard-won fact #3 in `AGENTS.md`.
 ## Consequences
 
 **Positive.**
+
 - Eliminates the "yesterday's screenshot" bug, which was the most user-visible misbehavior FlashPaste shipped pre-v1.10.
 - Wayland's MIME advertisement matches the actual selection content because mutter exposes the *current* offer, not the bridged X11 mirror.
 
 **Negative.**
+
 - A `wl-paste --list-types` probe with a timeout is more expensive than `xclip -o -t TARGETS`. The wedge cache compensates by serving stale-but-correct answers on repeat hits inside the TTL window.
 - Requires a `wl-paste` shim on `$PATH` ahead of the system binary so the policy is honored by every caller (kitty, tmux, the dispatcher). The shim lives at `bin/wl-paste`.
 
