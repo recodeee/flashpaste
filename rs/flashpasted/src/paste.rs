@@ -18,9 +18,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use tracing::{debug, info, warn};
+use tracing::info;
 
-use crate::kitty;
 use crate::state::{now_unix_ms, SharedState, StagedImage, StagedText};
 use crate::tmux;
 use tokio::io::AsyncWriteExt;
@@ -42,159 +41,42 @@ pub async fn dispatch_image_paste(
     pane: String,
     staged: StagedImage,
 ) -> Result<()> {
-    // Pull out the "what are we actually pasting" payload-summary fields
-    // up front so every log line on this code path can include them. The
-    // user complained that the dispatched-paste log line was too abstract
-    // ("dispatched image paste pane=%X") and didn't say WHAT was being
-    // pasted — which mattered when an unexpected screenshot from minutes
-    // ago kept getting pasted because the daemon's slot was stale.
     let payload_bytes = staged.bytes.len();
-    let payload_mime  = staged.mime;
-    let payload_path  = staged.path.display().to_string();
-    // Strip the directory and the "Screenshot from " prefix that GNOME
-    // always emits so the log line stays scannable.
     let payload_name = staged.path.file_name()
         .and_then(|n| n.to_str())
         .map(|s| s.trim_start_matches("Screenshot from ").to_string())
         .unwrap_or_else(|| "<no-name>".to_string());
-    // Resolve the kitty IPC socket. The daemon could cache this at startup,
-    // but kitty sometimes restarts (e.g. user reopens the terminal) and the
-    // socket name embeds the kitty pid; resolving on each paste is cheap
-    // (one readdir) and avoids stale paths.
-    // Per-phase timing — emitted as a single summary line at the end so the
-    // user can see where dispatch latency is going. Set RUST_LOG=debug for
-    // intermediate step logs in addition to the summary.
-    let t_start = std::time::Instant::now();
-    let mut t_phase = t_start;
-    let mut take_phase = || -> u64 {
-        let now = std::time::Instant::now();
-        let ms = now.duration_since(t_phase).as_millis() as u64;
-        t_phase = now;
-        ms
-    };
 
-    let xdg = xdg_runtime_dir();
-    let Some(kitty_sock) = kitty::find_kitty_socket(&xdg) else {
-        anyhow::bail!(
-            "no kitty IPC socket in {} (is kitty running with --listen?)",
-            xdg.display()
-        );
-    };
-    let ms_socket = take_phase();
-    debug!(kitty_sock = %kitty_sock.display(), ms_socket, "resolved kitty socket");
-
-    // Step 0: re-assert clipboard ownership.
+    // Re-claim X11 CLIPBOARD with the staged image bytes so Claude's
+    // `wl-paste -t image/png` reads OUR image (and not whatever external
+    // app last grabbed the selection). Wayland is mutter-wedged on this
+    // box; the X11 owner does the real work.
     //
-    // Why: between two pastes, the user can have copied text (the v1.19
-    // OSC 52 path makes kitty the live Wayland selection owner with
-    // text/plain bytes). The daemon's `latest_image` is still cached in
-    // memory, but the *live* clipboard owner has changed. When we
-    // send-text \026 and Claude calls `wl-paste -t image/png`, kitty
-    // serves the (text) selection — Claude reads 0 image bytes and
-    // silently does nothing. Symptom: "right-click → Paste doesn't
-    // paste the image; Ctrl+V right after a screenshot does."
-    //
-    // Bumping the stage notifier wakes the wayland.rs + x11.rs owner
-    // tasks, which re-claim the selection with the staged image bytes.
-    // The brief sleep lets the round-trip land before we send-text.
-    // On mutter where the Wayland claim is rejected outright (no
-    // ext-data-control / wlr-data-control), the X11 re-claim still
-    // succeeds and the wl-paste shim's xclip fallback picks it up.
-    // Identity of the staged image we're about to dispatch — the
-    // `captured_at` SystemTime converted to ms since epoch. If this
-    // matches `state.last_claim_request_image_ms`, the Wayland + X11
-    // owners already claimed THIS image and there's no need to re-fire
-    // the notifier (no SetSelectionOwner storm, no 8 ms sleep wasted).
-    let staged_id_ms = staged_image_id_ms(&staged);
-    let prev_claim_id = state
-        .last_claim_request_image_ms
-        .load(std::sync::atomic::Ordering::Acquire);
-    let ms_reassert = if prev_claim_id == staged_id_ms && staged_id_ms != 0 {
-        // Skip the re-assert entirely — the staged image hasn't
-        // changed since we last asked the owners to claim it.
-        info!(
-            pane,
-            image_id_ms = staged_id_ms,
-            "paste: skipping re-assert (staged image unchanged since last claim)"
-        );
-        take_phase()
-    } else {
-        info!(
-            pane,
-            image_id_ms = staged_id_ms,
-            "paste: re-asserting clipboard ownership before dispatch"
-        );
-        let _ = state.stage_notifier_tx.send(now_unix_ms());
-        state
-            .last_claim_request_image_ms
-            .store(staged_id_ms, std::sync::atomic::Ordering::Release);
-        // X11 selection claim over the local socket is microseconds — 40 ms
-        // was conservative padding "in case". 8 ms is a single ~16 ms frame
-        // worth of slack which still survives any plausible scheduler hiccup
-        // and shaves the bulk of Tier-3 dispatch latency.
-        tokio::time::sleep(Duration::from_millis(8)).await;
-        take_phase()
-    };
+    // No sleep: the X11 reclaim wakes on the notifier and runs concurrently
+    // with the rest of the dispatch (tmux forks, send-keys). By the time
+    // Claude actually fires `wl-paste -t image/png`, the reclaim has long
+    // since landed — local X11 socket round-trips are sub-millisecond,
+    // while the tmux forks below add several ms of scheduling. If a race
+    // ever shows up as "no image found" on the first paste after a new
+    // screenshot, restore a 2 ms sleep here.
+    let _ = state.stage_notifier_tx.send(now_unix_ms());
 
-    // Step 1: select pane. Best-effort.
     tmux::select_pane(&pane).await;
-    let ms_select = take_phase();
-
-    // Step 1.4: snapshot pane state (mode + current_command) in ONE
-    // `tmux display` fork. Before this, the copy-mode check and the
-    // pane-idle check each forked their own `tmux display` call — two
-    // forks × ~5 ms = ~10 ms wasted per dispatch.
     let pane_snap = tmux::pane_snapshot(&pane).await;
-    let ms_snapshot = take_phase();
-
-    // Step 1.5: if the user wheel-scrolled the pane into copy-mode, the
-    // \026 byte we're about to send would be swallowed by copy-mode's key
-    // handler and silently lost. Cancel it first.
     tmux::cancel_copy_mode_if_active(&pane, &pane_snap).await;
-    let ms_copymode = take_phase();
 
-    // (v1.23 had a `wait_for_pane_idle` step here that polled
-    // `capture-pane` for the Claude TUI's `↓ N tokens` indicator and held
-    // the dispatch until generation ended. In practice the detector hit
-    // any scrollback line containing "<digit> tokens" — release notes,
-    // chat history, "Saved 200 tokens", etc. — so it timed out on every
-    // press into a Claude pane and added the full timeout (5 s default)
-    // as pure latency before dispatching anyway. Removed in v1.24; the
-    // honest contract is "paste fires immediately; retry if the TUI
-    // drops the byte." That cost is far below 5 s of guaranteed hang.)
-
-    // Step 2: inject the Ctrl-V byte directly into the pane's pty via
-    // `tmux send-keys -l`. Before v1.26 this was `kitty @ send-text` +
-    // unbind/rebind theatrics; that approach only reached panes whose
-    // tmux client was attached to kitty (session 18 on this box),
-    // silently dropping every paste to other Claude Code panes on
-    // gnome-terminal etc. `tmux send-keys -l` writes the literal byte
-    // straight to the pane's pty regardless of attached client, and
-    // because `-l` bypasses the keytable we no longer need the
-    // unbind-C-v / schedule-rebind dance either.
-    if let Err(e) = tmux::send_ctrl_v_to_pane(&pane).await {
-        let ms_kitty = take_phase();
-        let ms_total = t_start.elapsed().as_millis() as u64;
-        warn!(
-            error = %e, pane,
-            ms_socket, ms_reassert, ms_select, ms_snapshot, ms_copymode,
-            ms_kitty, ms_total,
-            "tmux send-keys -l ^V failed — paste byte did not reach pane"
-        );
-        return Err(e.context("tmux send-keys -l ^V"));
-    }
-    let ms_kitty = take_phase();
-    let ms_total = t_start.elapsed().as_millis() as u64;
+    // Inject Ctrl-V (0x16) into the pane's pty via `tmux send-keys -l`.
+    // `-l` is literal: no keytable, no unbind/rebind dance. Reaches any
+    // tmux pane regardless of which terminal hosts the client.
+    tmux::send_ctrl_v_to_pane(&pane)
+        .await
+        .context("tmux send-keys -l ^V")?;
 
     info!(
         pane,
         kind = "image",
         payload_bytes,
-        payload_mime,
         payload_name = %payload_name,
-        payload_path = %payload_path,
-        ms_socket, ms_reassert, ms_select, ms_snapshot, ms_copymode,
-        ms_kitty, ms_total,
         "PASTED image"
     );
     Ok(())
@@ -220,10 +102,9 @@ pub async fn dispatch_text_paste(
     pane: String,
     text: StagedText,
 ) -> Result<()> {
-    let t_start = std::time::Instant::now();
     let bytes_len = text.bytes.len();
 
-    // 1. load-buffer -b fp_text - (stdin)
+    // Load text into tmux buffer 'fp_text' via stdin.
     let mut load = tokio::process::Command::new("tmux")
         .args(["load-buffer", "-b", "fp_text", "-"])
         .stdin(std::process::Stdio::piped())
@@ -232,59 +113,25 @@ pub async fn dispatch_text_paste(
         .spawn()
         .context("spawn tmux load-buffer")?;
     {
-        let mut stdin = load
-            .stdin
-            .take()
-            .context("tmux load-buffer stdin not piped")?;
-        stdin
-            .write_all(&text.bytes)
-            .await
-            .context("write text to tmux load-buffer stdin")?;
-        // Drop closes stdin.
+        let mut stdin = load.stdin.take().context("load-buffer stdin not piped")?;
+        stdin.write_all(&text.bytes).await.context("write load-buffer stdin")?;
     }
-    let load_status = load.wait().await.context("tmux load-buffer wait")?;
+    let load_status = load.wait().await.context("load-buffer wait")?;
     if !load_status.success() {
-        anyhow::bail!(
-            "tmux load-buffer returned non-zero: {:?} (bytes={})",
-            load_status,
-            bytes_len
-        );
+        anyhow::bail!("tmux load-buffer non-zero: {:?}", load_status);
     }
-    let ms_load = t_start.elapsed().as_millis() as u64;
 
-    // 2. paste-buffer -p -t <pane> -b fp_text
-    //    -p: bracketed paste (Claude Code's TUI prefers this).
-    //    Buffer is consumed but not deleted (default behaviour), which
-    //    is fine — next dispatch overwrites it.
-    let t_paste = std::time::Instant::now();
+    // Paste into the target pane (bracketed paste for multi-line safety).
     let paste_status = tokio::process::Command::new("tmux")
         .args(["paste-buffer", "-p", "-b", "fp_text", "-t", &pane])
         .status()
         .await
         .context("spawn tmux paste-buffer")?;
-    let ms_paste = t_paste.elapsed().as_millis() as u64;
-    let ms_total = t_start.elapsed().as_millis() as u64;
-
     if !paste_status.success() {
-        warn!(
-            pane,
-            bytes = bytes_len,
-            ms_load,
-            ms_paste,
-            ms_total,
-            "tmux paste-buffer returned non-zero — text may not have reached the pane"
-        );
-        anyhow::bail!("tmux paste-buffer returned non-zero: {:?}", paste_status);
+        anyhow::bail!("tmux paste-buffer non-zero: {:?}", paste_status);
     }
 
-    info!(
-        pane,
-        bytes = bytes_len,
-        ms_load,
-        ms_paste,
-        ms_total,
-        "dispatched text paste"
-    );
+    info!(pane, kind = "text", bytes = bytes_len, "PASTED text");
     Ok(())
 }
 

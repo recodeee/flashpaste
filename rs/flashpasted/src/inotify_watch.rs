@@ -137,91 +137,128 @@ fn run_watcher(
                 continue;
             }
 
-            // Auto-compress before staging. The common case (small PNG
-            // from PrtScr) is a pure pass-through and is no more expensive
-            // than the previous `fs::read` — `compress_for_attach` stats
-            // first and only reads if it returns early. The big-screen
-            // case (4K multimon → 12 MB PNG) gets re-encoded to ~1 MB
-            // WebP. Env-vars `FLASHPASTE_MAX_BYTES` and `FLASHPASTE_MAX_DIM`
-            // tune the thresholds.
+            // ── Fast path: stage RAW bytes immediately, compress later.
             //
-            // If compression itself errors out we fall back to the raw
-            // file — staging *something* is better than staging nothing,
-            // and the user can still pick the file up via auto-pickup.
-            let (bytes, mime, staged_path) = match compress::compress_for_attach_env(&path) {
-                Ok((b, m)) if m == "image/png" || m == "image/jpeg" => {
-                    let mime = mime_for_string(&m);
-                    (b, mime, path.clone())
-                }
-                Ok((b, m)) => {
-                    // The compressor returned re-encoded bytes (likely
-                    // WebP). Write them to a sibling tmpfile so X11
-                    // selection requests (which serve from-disk in some
-                    // paths) and downstream tools that want a file path
-                    // both see the smaller artifact. The original PNG
-                    // is left in place — never destroy user data.
-                    let tmp = make_compressed_tmp_path(&path, &m);
-                    match std::fs::write(&tmp, &b) {
-                        Ok(()) => {
-                            info!(
-                                src = %path.display(),
-                                dst = %tmp.display(),
-                                bytes = b.len(),
-                                mime = %m,
-                                "wrote compressed sibling for staging"
-                            );
-                            let mime = mime_for_string(&m);
-                            (b, mime, tmp)
-                        }
-                        Err(e) => {
-                            warn!(
-                                path = %tmp.display(),
-                                error = %e,
-                                "failed to write compressed sibling — staging raw bytes from original path"
-                            );
-                            let mime = mime_for_string(&m);
-                            (b, mime, path.clone())
-                        }
-                    }
-                }
+            // User feedback (2026-05-19): "screenshot has big delay, can
+            // it be lightspeed fast?" — the synchronous compression call
+            // below (`compress_for_attach_env`) re-encodes 4K multimon
+            // PNGs (12 MB+) to WebP, which can take 500-2000ms on this
+            // box. During that window the daemon's staged_image slot
+            // still holds whatever was there before (often stale text),
+            // so a paste right after PrtScr delivers the OLD content.
+            //
+            // Fix: read raw bytes from disk, stage them right now (single
+            // file read, ~5-20ms), then kick off compression in a
+            // background spawn_blocking thread that re-stages with the
+            // smaller artifact once it's ready. The brief window where
+            // we serve raw bytes is fine — X11 SelectionRequest serves
+            // from our in-memory buffer regardless of size.
+            let raw_bytes = match std::fs::read(&path) {
+                Ok(b) => b,
                 Err(e) => {
-                    warn!(
-                        path = %path.display(),
-                        error = ?e,
-                        "compress_for_attach failed — falling back to raw read"
-                    );
-                    match std::fs::read(&path) {
-                        Ok(b) => (b, mime_for(&path), path.clone()),
-                        Err(e2) => {
-                            warn!(
-                                path = %path.display(),
-                                error = %e2,
-                                "failed to read new screenshot"
-                            );
-                            continue;
-                        }
-                    }
+                    warn!(path = %path.display(), error = %e, "failed to read new screenshot — skipping stage");
+                    continue;
                 }
             };
-            let len = bytes.len();
-            let staged = StagedImage {
-                bytes: Arc::new(bytes),
-                mime,
-                path: staged_path,
+            let raw_len = raw_bytes.len();
+            let raw_mime = mime_for(&path);
+            let staged_raw = StagedImage {
+                bytes: Arc::new(raw_bytes),
+                mime: raw_mime,
+                path: path.clone(),
                 captured_at: SystemTime::now(),
             };
-            // Cross thread back into tokio for the write. block_on inside
-            // spawn_blocking is fine — we're not on a worker.
-            let state_clone = state.clone();
-            handle.block_on(async move {
-                state_clone.set_staged_image(staged).await;
-            });
+            {
+                let state_clone = state.clone();
+                handle.block_on(async move {
+                    state_clone.set_staged_image(staged_raw).await;
+                });
+            }
             info!(
                 path = %path.display(),
-                bytes = len,
-                mime = mime,
-                "staged screenshot from inotify"
+                bytes = raw_len,
+                mime = raw_mime,
+                "staged screenshot from inotify (raw, pre-compress)"
             );
+
+            // Now spawn the compression on a separate blocking thread so
+            // the inotify loop can immediately serve the next event. If
+            // compression produces smaller bytes, re-stage. If it errors
+            // or produces the same bytes, leave the raw stage in place.
+            let path_for_compress = path.clone();
+            let state_for_compress = state.clone();
+            let handle_for_compress = handle.clone();
+            std::thread::spawn(move || {
+                let result = compress::compress_for_attach_env(&path_for_compress);
+                // Reuse the original compression decision tree but only
+                // *replace* the stage if it actually wins on bytes — never
+                // regress from a smaller raw to a larger compressed result.
+                let compressed: Option<(Vec<u8>, &'static str, std::path::PathBuf)> = match result {
+                    Ok((b, m)) if m == "image/png" || m == "image/jpeg" => {
+                        // Pass-through (no real compression happened, or
+                        // shape was already acceptable). Only re-stage
+                        // if bytes actually shrank — otherwise the raw
+                        // stage we did synchronously above is better.
+                        if b.len() < raw_len {
+                            Some((b, mime_for_string(&m), path_for_compress.clone()))
+                        } else {
+                            None
+                        }
+                    }
+                    Ok((b, m)) => {
+                        // Re-encoded (likely WebP). Write sibling tmpfile.
+                        let tmp = make_compressed_tmp_path(&path_for_compress, &m);
+                        match std::fs::write(&tmp, &b) {
+                            Ok(()) => {
+                                info!(
+                                    src = %path_for_compress.display(),
+                                    dst = %tmp.display(),
+                                    bytes = b.len(),
+                                    mime = %m,
+                                    "wrote compressed sibling for staging"
+                                );
+                                Some((b, mime_for_string(&m), tmp))
+                            }
+                            Err(e) => {
+                                warn!(
+                                    path = %tmp.display(),
+                                    error = %e,
+                                    "failed to write compressed sibling — keeping raw stage"
+                                );
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            path = %path_for_compress.display(),
+                            error = ?e,
+                            "compress_for_attach failed — keeping raw stage"
+                        );
+                        None
+                    }
+                };
+
+                if let Some((bytes, mime, staged_path)) = compressed {
+                    let len = bytes.len();
+                    let staged = StagedImage {
+                        bytes: Arc::new(bytes),
+                        mime,
+                        path: staged_path,
+                        captured_at: SystemTime::now(),
+                    };
+                    handle_for_compress.block_on(async move {
+                        state_for_compress.set_staged_image(staged).await;
+                    });
+                    info!(
+                        path = %path_for_compress.display(),
+                        bytes = len,
+                        mime = mime,
+                        raw_bytes = raw_len,
+                        "re-staged screenshot after background compression"
+                    );
+                }
+            });
         }
     }
 }

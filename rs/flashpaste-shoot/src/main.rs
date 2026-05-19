@@ -554,6 +554,19 @@ async fn main() -> Result<()> {
         return run_ocr_only_path().await;
     }
 
+    // Per-phase timing. Emitted as a single SHOT structured line at the
+    // end so the user can see exactly where the screenshot-to-ready time
+    // is going. User asked (2026-05-19): "can we measure the speed with
+    // a cli logs?" — so we always emit the summary, not gated on -v.
+    let t_start = std::time::Instant::now();
+    let mut t_phase = t_start;
+    let mut take_phase = || -> u64 {
+        let now = std::time::Instant::now();
+        let ms = now.duration_since(t_phase).as_millis() as u64;
+        t_phase = now;
+        ms
+    };
+
     // 1. Portal capture (with timeout).
     let portal_path = timeout(
         Duration::from_millis(cli.timeout_ms),
@@ -561,7 +574,8 @@ async fn main() -> Result<()> {
     )
     .await
     .map_err(|_| anyhow!("portal screenshot timed out after {} ms", cli.timeout_ms))??;
-    info!(src = %portal_path.display(), "portal screenshot captured");
+    let ms_portal = take_phase();
+    info!(src = %portal_path.display(), ms_portal, "portal screenshot captured");
 
     // 2. Determine output path.
     let output_path: PathBuf = match cli.output {
@@ -573,33 +587,55 @@ async fn main() -> Result<()> {
             dir.join(format!("flashpaste-shoot-{}.png", unix_secs()))
         }
     };
+    let ms_outpath = take_phase();
 
     // 3. Stream bytes from portal temp file to output path. Sniff mime
     //    while we're at it.
     let mime = copy_with_sniff(&portal_path, &output_path)
         .context("copy portal output to destination")?;
-    info!(dst = %output_path.display(), mime = mime, "wrote screenshot");
+    let ms_write = take_phase();
+    info!(dst = %output_path.display(), mime = mime, ms_write, "wrote screenshot");
 
     // 4. Optional annotation pass. Runs BEFORE daemon stage so the
     //    daemon sees the annotated bytes, not the raw capture. Blocking
     //    by design — the user is in the editor and we want the final
     //    file before we tell anyone about it.
-    if cli.annotate {
+    let ms_annotate = if cli.annotate {
         if let Err(e) = run_annotate(&output_path) {
             warn!("annotate failed ({e:#}); proceeding with raw capture");
         }
-    }
+        take_phase()
+    } else {
+        take_phase()
+    };
 
     // 5. Best-effort daemon stage. The file is already on disk so even if
     //    this fails, auto-pickup in tmux-paste-dispatch.sh will find it.
-    if !cli.no_daemon {
+    let ms_daemon = if !cli.no_daemon {
         match try_stage_to_daemon(&output_path, mime).await {
             Ok(()) => info!("daemon stage ok"),
             Err(e) => warn!("daemon stage failed ({e:#}); file on disk is the fallback"),
         }
+        take_phase()
     } else {
         debug!("--no-daemon set; skipping daemon stage");
-    }
+        take_phase()
+    };
+
+    let ms_total = t_start.elapsed().as_millis() as u64;
+    // Single SHOT summary line. Goes to stderr (info!) so stdout stays
+    // clean for --print-path. Read with `journalctl --user --since="1
+    // minute ago" | grep SHOT` if running via systemd-launched keybind.
+    info!(
+        path = %output_path.display(),
+        ms_portal,
+        ms_outpath,
+        ms_write,
+        ms_annotate,
+        ms_daemon,
+        ms_total,
+        "SHOT"
+    );
 
     // 6. Optional OCR. Done AFTER daemon stage so we don't delay the
     //    clipboard becoming usable — OCR can take a few hundred ms even

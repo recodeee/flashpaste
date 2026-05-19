@@ -16,7 +16,6 @@
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -29,12 +28,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use crate::paste;
-use crate::state::{now_unix_ms, SharedState, StagedImage, StagedSelection, StagedText};
-
-/// Recursion guard window. A `paste` op arriving within this many ms of the
-/// previous one is treated as the tmux `bind -n C-v` recursion (see fact #2
-/// in the spec) and replied as `{"ok":true,"deduped":true}`.
-const RECURSION_DEDUPE_MS: u64 = 1500;
+use crate::state::{SharedState, StagedImage, StagedSelection, StagedText};
 
 /// Cap incoming request size. 16KB was enough when `Stage` only carried a
 /// path; `StageText` inlines the bytes (base64-encoded by the trigger) so
@@ -167,377 +161,171 @@ async fn write_response(stream: &mut UnixStream, value: &Value) -> Result<()> {
     Ok(())
 }
 
-async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) -> Value {
+async fn handle_paste(state: &Arc<SharedState>, pane: &str, _started: Instant) -> Value {
     info!(pane, "paste: request received");
 
-    // ─── Recursion guard ─────────────────────────────────────────────
-    // Fact #2 from the spec: tmux's `bind -n C-v` re-fires when the kitty
-    // `send_text \026` byte reaches tmux. The trigger binary calls us
-    // again; we dedupe based on the last-paste timestamp.
-    let now = now_unix_ms();
-    let last = state.last_paste_ms.load(Ordering::Relaxed);
-    if now.saturating_sub(last) < RECURSION_DEDUPE_MS {
-        // DEBUG (was INFO until perf audit 2026-05-19): the recursive
-        // C-v echo from kitty send-text generates ~10 of these per real
-        // paste and was flooding journald with no diagnostic value.
-        // Switched to debug! so the line stays available under
-        // RUST_LOG=debug but doesn't dominate INFO traffic. Keep the
-        // payload identical so existing logfile parsers still match.
-        debug!(
-            pane,
-            delta_ms = now - last,
-            "paste: dedupe — within recursion window (this is normal for the C-v echo back from kitty send-text)"
-        );
-        return json!({ "ok": true, "deduped": true });
+    // ─── Eager fresh-screenshot pickup ────────────────────────────────
+    // GNOME's screenshot tool writes the PNG via a tempfile, atomically
+    // renames it into place, but then *keeps the file descriptor open*
+    // for ~3–5 seconds while it renders its in-shell "Screenshot saved"
+    // notification. Inotify's `CLOSE_WRITE` doesn't fire until that fd
+    // closes — so a paste right after PrtScr sees the old staged_text
+    // and dispatches that instead of the brand-new screenshot.
+    //
+    // Defence in depth: on every paste, stat the screenshots dir for the
+    // freshest PNG/JPG. If its mtime is newer than what the daemon has
+    // staged, read it now and stage it. The dir scan is ~1ms on a
+    // typical screenshots folder; the file read is ~5-20ms for a 500KB
+    // PNG. Cost is acceptable; correctness is critical.
+    if let Some(dir) = &state.config.screenshots_dir {
+        if let Some((fresh_path, fresh_mtime)) = newest_image_in(dir) {
+            let need_pickup = match state.staged_snapshot().await {
+                Some(StagedSelection::Image(img)) => fresh_mtime > img.captured_at,
+                _ => fresh_mtime
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() > now_unix_secs().saturating_sub(60))
+                    .unwrap_or(false),
+            };
+            if need_pickup {
+                if let Ok(bytes) = std::fs::read(&fresh_path) {
+                    let len = bytes.len();
+                    let new_img = StagedImage {
+                        bytes: Arc::new(bytes),
+                        mime: mime_for_path(&fresh_path),
+                        path: fresh_path.clone(),
+                        captured_at: fresh_mtime,
+                    };
+                    info!(
+                        pane,
+                        path = %fresh_path.display(),
+                        bytes = len,
+                        "paste: eagerly picked up fresh screenshot (inotify hadn't fired yet)"
+                    );
+                    state.set_staged_image(new_img).await;
+                }
+            }
+        }
     }
-    // Race-tolerant: store before doing the work so a recursive call's
-    // load sees the new timestamp.
-    state.last_paste_ms.store(now, Ordering::Relaxed);
 
-    // (v1.25: removed the `clipboard_holds_user_text` short-circuit
-    // that was here. Rationale: tmux's `@clip` pipe auto-copies on
-    // every mouse-drag-end into a tmux pane — so highlighting any
-    // text in scrollback (reading a log line, selecting an error
-    // message to look at) immediately overwrote the X11 CLIPBOARD
-    // with that text. The next right-click → Paste then saw "X11
-    // holds user text" and punted to bash, which delivered the
-    // highlighted log junk instead of the user's screenshot.
-    // Confirmed in journalctl on this box: `paste: X11 CLIPBOARD
-    // now holds user text … punting to bash` fired on every Claude
-    // pane paste once any tmux pane had been highlighted.
-    //
-    // New rule: if the daemon has a fresh staged image, it always
-    // wins. The paste step re-claims X11 ownership with the staged
-    // image bytes before dispatching, so even an xclip-held text
-    // selection gets superseded. Losing the user's incidental
-    // highlight on paste is much cheaper than silently delivering
-    // log junk into Claude Code.
-    //
-    // For the "user pressed Ctrl-C in a browser and wants text"
-    // case: that's still served via the bash fallback when the
-    // daemon has NO fresh staged image — see the freshness branch
-    // below.)
-
-    // ─── Intent decision: text vs image ──────────────────────────────
-    // User contract (2026-05-19): "if last time was text pasted and no
-    // new screenshot was taken the text should be pasted to each
-    // terminal". The staged-selection slot is single-valued — set_staged_image
-    // replaces text and vice versa — so whatever's in the slot IS the
-    // most-recent staged action. We honour that:
-    //   1. Slot has fresh TEXT  → text dispatch via tmux paste-buffer
-    //   2. Slot has fresh IMAGE → image dispatch via send-keys ^V
-    //   3. Slot empty but X11 clipboard has text (user just copied
-    //      something but it hasn't been staged in daemon yet) →
-    //      read it, stage it, dispatch text
-    //   4. None of the above → punt to bash (text-path fallback)
-    let mut staged_selection = state.staged_snapshot().await;
-    if staged_selection.is_none() || !matches!(&staged_selection, Some(s) if s.is_fresh()) {
-        // No fresh staged slot — see if the user has fresh text on the
-        // X11 clipboard that we can stage and use.
+    // ─── Intent: text or image (most-recent staged wins) ──────────────
+    // The staged-selection slot is single-valued (set_staged_image
+    // replaces text and vice versa), so whatever's in the slot is the
+    // most-recent staged action. If the slot is empty / stale, fall back
+    // to scraping the live X11 clipboard for fresh text. Otherwise punt
+    // to bash. No recursion-guard / in-flight guard / queue collapse /
+    // notifier-skip / per-phase timing — those were all dropped on
+    // 2026-05-19 user request ("remove all the timing and guards").
+    let mut staged = state.staged_snapshot().await;
+    if !matches!(&staged, Some(s) if s.is_fresh()) {
         if let Some(bytes) = read_clipboard_text_if_present().await {
-            let staged = StagedText {
+            let s = StagedText {
                 bytes: Arc::new(bytes),
                 captured_at: std::time::SystemTime::now(),
             };
-            info!(
+            info!(pane, bytes = s.bytes.len(), "paste: scraped X11 text → staged");
+            state.set_staged_text(s.clone()).await;
+            staged = Some(StagedSelection::Text(s));
+        }
+    } else if let Some(StagedSelection::Image(img)) = &staged {
+        // External-text override: if some other app now owns the live X11
+        // CLIPBOARD with text-only targets, the user has copied text since
+        // the daemon staged its image. Honour the user's intent.
+        //
+        // BUT skip the probe entirely if the image is *very fresh* (just
+        // staged via inotify in the last 3 seconds). On Mutter the daemon's
+        // X11 re-claim is asynchronous — wakes up `x11.rs` via the stage
+        // notifier and re-issues SetSelectionOwner — and can lag behind
+        // the staging event by 100-300ms in the average case (more for
+        // 4K screenshots that the compressor was working on). Without
+        // this gate the probe sees the *old* text targets (because the
+        // re-claim hasn't propagated yet), returns true, and overrides
+        // the brand-new screenshot back to stale text. Symptom: "I took
+        // a screenshot and pasted right after, but it pasted the URL I
+        // had on the clipboard before."
+        //
+        // Heuristic: any explicit user text-copy after the screenshot
+        // is going to take at least ~1 second of human action (move
+        // mouse, drag-select, release). 3 s is generous; longer than
+        // any X11 re-claim race but shorter than any deliberate workflow.
+        let age = img.captured_at.elapsed().unwrap_or(std::time::Duration::ZERO);
+        if age > std::time::Duration::from_secs(3) {
+            if let Some(bytes) = read_clipboard_text_if_present().await {
+                let s = StagedText {
+                    bytes: Arc::new(bytes),
+                    captured_at: std::time::SystemTime::now(),
+                };
+                info!(
+                    pane,
+                    bytes = s.bytes.len(),
+                    image_age_s = age.as_secs(),
+                    "paste: external X11 text overrides staged image (image old enough that user text-copy probably came after it)"
+                );
+                state.set_staged_text(s.clone()).await;
+                staged = Some(StagedSelection::Text(s));
+            }
+        } else {
+            debug!(
                 pane,
-                bytes = staged.bytes.len(),
-                "paste: scraped fresh text from X11 clipboard and staged it"
+                image_age_ms = age.as_millis() as u64,
+                "paste: skipping external-text override — staged image is fresh, X11 re-claim may still be propagating"
             );
-            state.set_staged_text(staged.clone()).await;
-            staged_selection = Some(StagedSelection::Text(staged));
+        }
+    } else if let Some(StagedSelection::Text(existing)) = &staged {
+        // Stale-text override: the daemon's `staged_text` only refreshes
+        // when something calls `flashpaste-trigger --stage-text` (i.e.
+        // clipboard-set.sh via tmux's `@clip` pipe on mouse-highlight).
+        // When the user copies via kitty's `copy_and_clear_or_interrupt`
+        // (Ctrl+C with a live selection) or any non-tmux app, kitty
+        // writes the bytes straight to the X11 CLIPBOARD and never tells
+        // the daemon. Result: every paste delivers the OLD `staged_text`
+        // even though the live clipboard holds bytes the user just
+        // copied. Probe live X11 — if it differs, prefer X11.
+        if let Some(bytes) = read_clipboard_text_if_present().await {
+            if bytes.as_slice() != existing.bytes.as_slice() {
+                let s = StagedText {
+                    bytes: Arc::new(bytes),
+                    captured_at: std::time::SystemTime::now(),
+                };
+                info!(
+                    pane,
+                    live_bytes = s.bytes.len(),
+                    staged_bytes = existing.bytes.len(),
+                    "paste: live X11 text differs from staged_text — using live X11 (kitty Ctrl+C or external app updated the clipboard)"
+                );
+                state.set_staged_text(s.clone()).await;
+                staged = Some(StagedSelection::Text(s));
+            }
         }
     }
 
-    match staged_selection {
+    match staged {
         Some(StagedSelection::Text(text)) => {
-            // ─── Text dispatch ────────────────────────────────────────
-            // tmux load-buffer + paste-buffer to the target pane. No
-            // clipboard claim, no kitty IPC, no unbind/rebind dance —
-            // pure tmux pty injection. Works across every Claude pane
-            // regardless of which terminal hosts the tmux client.
             let bytes = text.bytes.len();
-            info!(pane, bytes, "paste: dispatching staged text via tmux paste-buffer");
-            let state_for_task = state.clone();
-            let pane_for_task = pane.to_string();
-            tokio::spawn(async move {
-                if let Err(e) = paste::dispatch_text_paste(
-                    state_for_task,
-                    pane_for_task.clone(),
-                    text,
-                )
-                .await
-                {
-                    error!(error = ?e, pane = %pane_for_task, "text paste dispatch failed");
-                }
-            });
-            return json!({
-                "ok": true,
-                "queued": true,
-                "kind": "text",
-                "bytes": bytes as u64,
-                "ack_ms": started.elapsed().as_millis() as u64,
-            });
+            if let Err(e) = paste::dispatch_text_paste(state.clone(), pane.to_string(), text).await
+            {
+                error!(error = ?e, pane, "text paste dispatch failed");
+                return json!({ "ok": false, "reason": "dispatch-failed", "fallback": "bash" });
+            }
+            json!({ "ok": true, "kind": "text", "bytes": bytes as u64 })
         }
         Some(StagedSelection::Image(img)) if img.is_fresh() => {
-            // ── External-text override ────────────────────────────────────
-            // v1.25 made "image always wins when staged_image is fresh."
-            // That's correct EXCEPT when the user has just copied text in
-            // ANOTHER app (browser, gnome-terminal, vscode, …) — in that
-            // case the daemon's staged_image is still in memory but the
-            // live X11 CLIPBOARD has been taken over by the other app and
-            // advertises only text/* targets. Forcing image dispatch in
-            // that state means Claude's `wl-paste -t image/png` queries
-            // the external owner, gets nothing, and prints "no image
-            // found" while the user's just-copied text is right there.
-            //
-            // So: probe live X11 TARGETS. If they say "text only, no
-            // image", honour the user's recent text-copy by scraping it
-            // into the text slot and dispatching as text. Daemon's own
-            // staged_image stays in memory for the NEXT paste in case the
-            // user goes back to wanting it (taking a new screenshot will
-            // overwrite the slot anyway). This costs ~3-5 ms via xclip
-            // — acceptable for "text from elsewhere actually pastes."
-            if clipboard_holds_user_text().await {
-                if let Some(bytes) = read_clipboard_text_if_present().await {
-                    let text_staged = StagedText {
-                        bytes: Arc::new(bytes),
-                        captured_at: std::time::SystemTime::now(),
-                    };
-                    let n = text_staged.bytes.len();
-                    info!(
-                        pane,
-                        bytes = n,
-                        staged_image_bytes = img.bytes.len(),
-                        "paste: X11 CLIPBOARD now owned by external app with text — \
-                         overriding fresh staged image and dispatching the user's text"
-                    );
-                    // Don't displace the in-memory staged_image (user can
-                    // still re-screenshot to refresh intent), but DO set
-                    // staged_text so subsequent rapid pastes find it.
-                    state.set_staged_text(text_staged.clone()).await;
-                    let state_for_task = state.clone();
-                    let pane_for_task = pane.to_string();
-                    tokio::spawn(async move {
-                        if let Err(e) = paste::dispatch_text_paste(
-                            state_for_task,
-                            pane_for_task.clone(),
-                            text_staged,
-                        )
-                        .await
-                        {
-                            error!(error = ?e, pane = %pane_for_task, "text paste dispatch failed");
-                        }
-                    });
-                    return json!({
-                        "ok": true,
-                        "queued": true,
-                        "kind": "text",
-                        "bytes": n as u64,
-                        "ack_ms": started.elapsed().as_millis() as u64,
-                        "source": "x11-external-override",
-                    });
-                }
+            if let Err(e) =
+                paste::dispatch_image_paste(state.clone(), pane.to_string(), img).await
+            {
+                error!(error = ?e, pane, "image paste dispatch failed");
+                return json!({ "ok": false, "reason": "dispatch-failed", "fallback": "bash" });
             }
-            // No external text override → normal image dispatch.
-            return dispatch_image_path(state.clone(), pane.to_string(), img, started).await;
+            json!({ "ok": true, "kind": "image" })
         }
         Some(StagedSelection::Image(_)) => {
             warn!(pane, "paste: staged image too old; punting to bash");
-            return json!({
-                "ok": false,
-                "reason": "stale-image",
-                "fallback": "bash",
-            });
+            json!({ "ok": false, "reason": "stale-image", "fallback": "bash" })
         }
-        Some(StagedSelection::Text(_)) | None => {
-            info!(
-                pane,
-                "paste: no fresh staged content (no image, no text); punting to bash"
-            );
-            return json!({
-                "ok": false,
-                "reason": "no-content",
-                "fallback": "bash",
-            });
+        None => {
+            info!(pane, "paste: nothing staged and clipboard has no text; punting to bash");
+            json!({ "ok": false, "reason": "no-content", "fallback": "bash" })
         }
     }
-}
-
-/// Image dispatch entry path, factored out so `handle_paste` can return
-/// from the intent-match arm without duplicating the queue-collapse +
-/// detached-spawn boilerplate below. (Kept inside this file because the
-/// `paste_in_flight` / `pending_paste` state coupling stays here.)
-async fn dispatch_image_path(
-    state: Arc<SharedState>,
-    pane: String,
-    staged: StagedImage,
-    started: Instant,
-) -> Value {
-    let pane = pane.as_str();
-
-    // ─── In-flight guard ─────────────────────────────────────────────
-    // While a dispatch is waiting on Claude to become idle, additional
-    // paste presses must not spawn parallel dispatches — otherwise N
-    // queued presses all fire \026 simultaneously when Claude unblocks
-    // (observed in journalctl: elapsed_ms=1853, 7600, 16245, 26733 all
-    // dispatching within a single second). Acquire here, after we know
-    // we'll dispatch (past the punt-to-bash branches).
-    //
-    // Queue collapse: if already in-flight, BUMP `pending_paste` (the
-    // detached task drains it at completion and replays once) instead
-    // of dropping. Net effect: N user presses during one Claude
-    // generation collapse to ONE extra image attach at the end, not N.
-    if state.paste_in_flight.swap(true, Ordering::AcqRel) {
-        let prev = state.pending_paste.fetch_add(1, Ordering::AcqRel);
-        // Saturate at u8::MAX; over 200 presses without dispatch is
-        // pathological and we don't want to wrap to 0.
-        if prev == u8::MAX {
-            state.pending_paste.store(u8::MAX, Ordering::Release);
-        }
-        // Remember the MOST RECENT pane that absorbed a press so the
-        // replay dispatches there (not back to whichever pane started
-        // the in-flight dispatch). Watcher caught the silent-loss bug:
-        // press to A starts dispatch → press to B absorbed → replay
-        // went to A and B's intent was dropped.
-        if let Ok(mut guard) = state.pending_pane.lock() {
-            *guard = Some(pane.to_string());
-        }
-        info!(
-            pane,
-            pending = prev.saturating_add(1),
-            "paste: in-flight dispatch absorbed this press — will replay once at completion"
-        );
-        return json!({
-            "ok": true,
-            "queued": true,
-            "reason": "in-flight-coalesced",
-            "pending": prev.saturating_add(1) as u64,
-        });
-    }
-
-    // ─── Dispatch (detached) ─────────────────────────────────────────
-    // Reply "queued" immediately and run the dispatch on a detached task
-    // that releases the in-flight flag on completion. Inline awaiting
-    // was added historically because the v1.23 `wait_for_pane_idle` hold
-    // could block up to 30 s and exceed the trigger's read timeout —
-    // surfacing as `Broken pipe (os error 32)` when we eventually
-    // replied. v1.24 dropped the wait, so dispatches now run ~10–20 ms;
-    // detaching is no longer required for liveness, but we keep it so
-    // the in-flight + pending_paste replay path stays unchanged.
-    //
-    // Replay loop: after each dispatch we drain `pending_paste`; if any
-    // presses were absorbed during the wait, replay ONCE with the
-    // latest staged image. The race window between "drain pending" and
-    // "release in_flight" is plugged by a re-check + try-reacquire.
-    let state_for_task = state.clone();
-    let initial_pane = pane.to_string();
-    tokio::spawn(async move {
-        let mut current_staged = staged;
-        let mut current_pane = initial_pane.clone();
-        loop {
-            let result = paste::dispatch_image_paste(
-                state_for_task.clone(),
-                current_pane.clone(),
-                current_staged,
-            )
-            .await;
-            if let Err(e) = result {
-                error!(error = ?e, pane = %current_pane, "paste dispatch failed (detached)");
-            }
-            // Drain any presses that arrived during the dispatch.
-            let absorbed = state_for_task
-                .pending_paste
-                .swap(0, Ordering::AcqRel);
-            if absorbed == 0 {
-                // Release the flag, then re-check pending to catch the
-                // tiny race where a press arrives between our swap and
-                // the release.
-                state_for_task
-                    .paste_in_flight
-                    .store(false, Ordering::Release);
-                let late = state_for_task.pending_paste.swap(0, Ordering::AcqRel);
-                if late == 0 {
-                    return;
-                }
-                // A late press snuck in. Try to re-acquire the flag.
-                if state_for_task
-                    .paste_in_flight
-                    .swap(true, Ordering::AcqRel)
-                {
-                    // Someone else already grabbed it; they'll handle
-                    // the press. Done.
-                    info!(
-                        pane = %current_pane,
-                        absorbed = late,
-                        "queue-collapse: late press handed off to next dispatcher"
-                    );
-                    return;
-                }
-                info!(
-                    pane = %current_pane,
-                    absorbed = late,
-                    "queue-collapse: late press caught after release — replaying"
-                );
-            } else {
-                info!(
-                    pane = %current_pane,
-                    absorbed,
-                    "queue-collapse: replaying once for absorbed presses"
-                );
-            }
-            // The replay must dispatch to the LATEST pane that absorbed a
-            // press — not to the pane that started the original dispatch.
-            // Otherwise pasting to pane A then quickly to pane B during
-            // A's wait would silently drop B's intent. See watcher report
-            // 2026-05-19 ("absorbed-press pane=%38 → replay pane=%41").
-            let replay_pane = state_for_task
-                .pending_pane
-                .lock()
-                .ok()
-                .and_then(|mut g| g.take());
-            if let Some(target) = replay_pane {
-                if target != current_pane {
-                    info!(
-                        from_pane = %current_pane,
-                        to_pane = %target,
-                        "queue-collapse: replay re-targeted to most-recent pane"
-                    );
-                }
-                current_pane = target;
-            }
-            // Fetch the latest staged image for the replay (might be a
-            // newer screenshot the user took during the wait).
-            match state_for_task.staged_image().await {
-                Some(img) if img.is_fresh() => current_staged = img,
-                Some(_) => {
-                    warn!(
-                        pane = %current_pane,
-                        "queue-collapse: staged image went stale during replay — dropping"
-                    );
-                    state_for_task
-                        .paste_in_flight
-                        .store(false, Ordering::Release);
-                    return;
-                }
-                None => {
-                    warn!(
-                        pane = %current_pane,
-                        "queue-collapse: no staged image at replay time — dropping"
-                    );
-                    state_for_task
-                        .paste_in_flight
-                        .store(false, Ordering::Release);
-                    return;
-                }
-            }
-        }
-    });
-    json!({
-        "ok": true,
-        "queued": true,
-        "ack_ms": started.elapsed().as_millis() as u64,
-    })
 }
 
 async fn handle_stage_text(state: &Arc<SharedState>, bytes_b64: &str) -> Value {
@@ -704,6 +492,54 @@ fn is_socket(p: &Path) -> bool {
 
 /// Minimal standard-base64 decoder. Avoids pulling in the `base64` crate
 /// for a single hot use. Accepts whitespace + ignores `=` padding length.
+/// Find the most recently-modified PNG/JPEG file in `dir`. Returns the
+/// path and its mtime. Used by `handle_paste` to eagerly pick up
+/// screenshots that GNOME has written but whose `CLOSE_WRITE` event
+/// hasn't fired yet (the screenshot tool keeps the fd open while
+/// rendering its in-shell "saved" toast).
+fn newest_image_in(dir: &std::path::Path) -> Option<(std::path::PathBuf, std::time::SystemTime)> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let lower = p.extension().and_then(|s| s.to_str()).map(str::to_lowercase);
+        match lower.as_deref() {
+            Some("png") | Some("jpg") | Some("jpeg") => {}
+            _ => continue,
+        }
+        // Skip our own compressed siblings (`.fpc.<ext>`).
+        if p.file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.contains(".fpc."))
+        {
+            continue;
+        }
+        let mtime = match entry.metadata().and_then(|m| m.modified()) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        match &best {
+            Some((cur, _)) if *cur >= mtime => {}
+            _ => best = Some((mtime, p)),
+        }
+    }
+    best.map(|(t, p)| (p, t))
+}
+
+fn mime_for_path(p: &std::path::Path) -> &'static str {
+    match p.extension().and_then(|s| s.to_str()).map(str::to_lowercase).as_deref() {
+        Some("jpg") | Some("jpeg") => "image/jpeg",
+        _ => "image/png",
+    }
+}
+
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
 fn decode_base64(input: &str) -> anyhow::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(input.len() * 3 / 4);
     let mut buf: u32 = 0;
