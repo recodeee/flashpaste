@@ -1,0 +1,29 @@
+# FlashPaste
+
+> FlashPaste is the missing glue that makes image-paste *just work* into terminal AI agents (Claude Code, Codex CLI, Aider) on GNOME Wayland. It works around mutter's surfaceless-client clipboard refusal, kitty's `map ctrl+v` interception, and tmux's `bind -n C-v` recursion via three progressive performance tiers: bash hot path (~127 ms), Rust one-shot dispatch (<40 ms), and a persistent daemon (<15 ms). Tier 1 is always on; Tiers 2 and 3 fall back transparently. MIT-licensed. Ships as a Debian `.deb`, a curl|bash bootstrap, or a built-from-source Rust workspace.
+
+The canonical stack FlashPaste targets is **GNOME Wayland + kitty + tmux + a terminal LLM agent**. If you are running Sway, Hyprland, or another wlroots compositor, `wl-clip-persist` is the right answer and you do not need FlashPaste.
+
+## Docs
+
+- [README](README.md): Project overview, install commands, configuration snippets, the three-tier latency story, and the contract surface
+- [Install guide](docs/install.md): Debian/Ubuntu `.deb`, curl|bash bootstrap, build-from-source, per-distro notes, and post-install activation
+- [Architecture](docs/architecture.md): Deep dive on Tier 1 (bash dispatcher), Tier 2 (Rust one-shot), Tier 3 (persistent daemon + 1-byte trigger), and the kitty IPC + daemon socket protocols
+- [FAQ](docs/faq.md): Twenty-plus questions and answers — image-paste failures, mutter wedge behaviour, daemon vs one-shot trade-offs, MCP, agent integration
+- [Troubleshooting](docs/troubleshooting.md): Symptom → cause → fix tables, log locations, the diagnostic flowchart for "image paste isn't working"
+- [Comparison vs alternatives](docs/comparison.md): FlashPaste vs `wl-clip-persist`, `cliphist`, OSC 52, manual `wl-paste | kitty @ send-text`, browser-based paste flows
+- [Use cases](docs/use-cases.md): Specific scenarios — pasting screenshots into Claude Code on Ubuntu 24.04, Codex CLI on Fedora, Aider on Debian
+- [Glossary](docs/glossary.md): Definitions of every domain term used in the codebase — mutter, surfaceless client, wlroots, wl-data-control, OSC 52, recursion guard, app_id
+
+## Agents
+
+- [AGENTS.md](AGENTS.md): Authoritative rules for AI agents and human contributors editing the repo — the non-negotiable release workflow, the four hard-won facts the code must preserve, the parallel-agent rules of engagement, version-number policy
+- [ROADMAP.md](ROADMAP.md): Phase 1–4 plan covering shell cleanup, Rust performance, features, and distribution
+
+## Optional
+
+- [LICENSE](LICENSE): MIT license text
+- [CITATION.cff](CITATION.cff): Citation File Format metadata for academic / blog references
+- [examples/](examples/): Verbatim tmux + kitty config snippets to append to your dotfiles
+- [systemd/](systemd/): User unit files — `clipboard-janitor.service`, `flashpaste-screenshot-watcher.{path,service}`, `flashpasted.service`
+- [packaging/](packaging/): Debian `.deb` build tooling (`build-deb.sh`, control templates)

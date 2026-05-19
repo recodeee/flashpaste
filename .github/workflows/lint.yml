@@ -1,0 +1,81 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly full link sweep on Sunday 06:00 UTC. Pull-requests still run
+    # link-check in modified-only mode so they stay fast.
+    - cron: '0 6 * * 0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    name: shellcheck + bash -n
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+
+      - name: bash -n syntax pre-check on every .sh
+        run: |
+          set -e
+          # Recursively syntax-check every shell script in the repo.
+          # Fails fast so the more expensive shellcheck only runs if
+          # the scripts parse at all.
+          while IFS= read -r -d '' f; do
+            echo "bash -n $f"
+            bash -n "$f"
+          done < <(find . -type f -name '*.sh' -not -path './rs/target/*' -print0)
+
+      - name: shellcheck (warning severity)
+        run: |
+          # SC1090 (can't follow non-constant source), SC2034 (unused var
+          # exported for sibling scripts), SC2155 (declare and assign on
+          # one line) are noisy in this codebase and intentional.
+          shellcheck -S warning \
+            -e SC1090,SC2034,SC2155 \
+            bin/*.sh \
+            install.sh \
+            bootstrap.sh \
+            AGENTS-release-check.sh
+
+  markdown-lint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run markdownlint-cli2
+        uses: DavidAnson/markdownlint-cli2-action@v18
+        with:
+          globs: '**/*.md'
+          config: '.markdownlint.json'
+
+  link-check:
+    name: markdown link-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check links in markdown
+        uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: 'yes'
+          use-verbose-mode: 'no'
+          config-file: '.github/markdown-link-check-config.json'
+          # Full sweep on push/schedule, modified-only on pull requests so
+          # PR feedback stays fast.
+          check-modified-files-only: ${{ github.event_name == 'pull_request' && 'yes' || 'no' }}
+          base-branch: 'main'

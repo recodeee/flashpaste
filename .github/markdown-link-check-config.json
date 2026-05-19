@@ -1,0 +1,27 @@
+{
+  "ignorePatterns": [
+    { "pattern": "^http://localhost" },
+    { "pattern": "^https://localhost" },
+    { "pattern": "^http://127\\.0\\.0\\.1" },
+    { "pattern": "^https://127\\.0\\.0\\.1" },
+    { "pattern": "^http://.*\\.local(:|/|$)" },
+    { "pattern": "^https://.*\\.local(:|/|$)" },
+    { "pattern": "^file://" },
+    { "pattern": "^/home/" },
+    { "pattern": "^~/" }
+  ],
+  "replacementPatterns": [],
+  "httpHeaders": [
+    {
+      "urls": ["https://github.com/", "https://raw.githubusercontent.com/"],
+      "headers": {
+        "Accept": "text/html,application/xhtml+xml"
+      }
+    }
+  ],
+  "timeout": "20s",
+  "retryOn429": true,
+  "retryCount": 3,
+  "fallbackRetryDelay": "30s",
+  "aliveStatusCodes": [200, 206, 403]
+}

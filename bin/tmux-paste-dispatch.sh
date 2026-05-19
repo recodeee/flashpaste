@@ -125,36 +125,8 @@
 set -u
 
 # --- logging ---------------------------------------------------------
-# Set FLASHPASTE_QUIET=1 in the environment to make log/t/clog no-ops.
-# Saves ~5-15ms per invocation by skipping the `date` forks and stat
-# ops. Default: verbose (writes ~/.local/state/tmux-paste.log and
-# ~/.local/state/clipboard-pipeline.log).
 readonly LOG="${TMUX_PASTE_LOG:-$HOME/.local/state/tmux-paste.log}"
 mkdir -p "$(dirname "$LOG")" 2>/dev/null
-
-# ────────────────────────────────────────────────────────────────────
-# JSON trace sink (Phase 0 of flashpaste perf plan).
-#
-# Default OFF. Enable with FLASHPASTE_TRACE=1 to emit one JSON line per
-# checkpoint to $FLASHPASTE_TRACE_LOG (default
-# ~/.local/state/flashpaste-trace.jsonl). Each invocation gets a
-# unique trace id of the form "<unix_seconds>-<pid>" so the analyzer
-# can group rows back into individual pastes.
-#
-# Aggregate / inspect with bin/flashpaste-trace.sh — it computes
-# p50/p90/p99 latency per checkpoint across the last N invocations.
-#
-# FLASHPASTE_QUIET=1 still wins. When quiet is set, no JSON either.
-# ────────────────────────────────────────────────────────────────────
-readonly FLASHPASTE_TRACE_LOG="${FLASHPASTE_TRACE_LOG:-$HOME/.local/state/flashpaste-trace.jsonl}"
-mkdir -p "$(dirname "$FLASHPASTE_TRACE_LOG")" 2>/dev/null
-_TRACE_ID="$(date +%s)-$$"
-
-if [ "${FLASHPASTE_QUIET:-0}" = "1" ]; then
-  log()  { :; }
-  clog() { :; }
-  t()    { :; }
-else
 . /home/deadpool/.local/bin/clip-pipeline-log.sh 2>/dev/null || true
 type clog >/dev/null 2>&1 || clog() { :; }
 log() {
@@ -169,7 +141,6 @@ log() {
 # fork cost of `date`.
 _T_START_MS=
 _T_PREV_MS=
-_T_LAST_TOTAL_MS=0
 t() {
   local now_ms epoch
   if [ -n "${EPOCHREALTIME:-}" ]; then
@@ -185,36 +156,9 @@ t() {
   local total=$((now_ms - _T_START_MS))
   local delta=$((now_ms - _T_PREV_MS))
   _T_PREV_MS=$now_ms
-  _T_LAST_TOTAL_MS=$total
   printf '[%s] T+%4dms (Δ%3dms) :: %s\n' "$(date '+%H:%M:%S.%3N')" "$total" "$delta" "$*" >>"$LOG"
   clog "paste-dispatch" "event=timing" "total_ms=$total" "delta_ms=$delta" "step='$*'"
-  # JSON sink — see header comment near $FLASHPASTE_TRACE_LOG.
-  # Analyzer: bin/flashpaste-trace.sh
-  if [ "${FLASHPASTE_TRACE:-0}" = "1" ]; then
-    local step_esc=${1//\\/\\\\}
-    step_esc=${step_esc//\"/\\\"}
-    printf '{"trace":"%s","t_ms":%d,"delta_ms":%d,"step":"%s","ts":"%s"}\n' \
-      "$_TRACE_ID" "$total" "$delta" "$step_esc" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
-      >>"$FLASHPASTE_TRACE_LOG"
-  fi
 }
-
-# Exit summary — fires on every `exit` path (including the multiple
-# `exit 0` calls scattered through the script). Emits one synthetic
-# "__exit" record so the analyzer can compute per-invocation totals.
-# Gated identically to t(): off unless FLASHPASTE_TRACE=1, and quiet
-# mode short-circuits the whole verbose branch anyway.
-_flashpaste_trace_exit() {
-  local rc=$?
-  if [ "${FLASHPASTE_TRACE:-0}" = "1" ]; then
-    printf '{"trace":"%s","t_ms":%d,"delta_ms":0,"step":"__exit","exit":%d,"ts":"%s"}\n' \
-      "$_TRACE_ID" "$_T_LAST_TOTAL_MS" "$rc" "$(date -u +%Y-%m-%dT%H:%M:%S.%3NZ)" \
-      >>"$FLASHPASTE_TRACE_LOG"
-  fi
-  return $rc
-}
-trap _flashpaste_trace_exit EXIT
-fi  # /FLASHPASTE_QUIET branch
 # --------------------------------------------------------------------
 
 pane="${1:-}"
@@ -658,14 +602,38 @@ case "$client_term" in
     ;;
 esac
 
-# Non-kitty terminal: synthesize Ctrl+Shift+V via ydotool. The host
-# terminal handles the paste natively, reading its own clipboard.
-#
-# ydotool 0.1.8 (Ubuntu 24.04) uses key-name syntax `ctrl+shift+v`,
-# NOT the numeric `keycode:state` pairs from ydotool 1.x.
+# Non-kitty terminal (GNOME Terminal etc.): bypass ydotool entirely for
+# TEXT paste. ydotool synthesizes Ctrl+Shift+V at the OS level, but the
+# tmux right-click menu (which invokes us) is MODAL — it captures every
+# subsequent keystroke until dismissed, so the synthesized paste-shortcut
+# never reaches the host terminal. v1.20: stage clipboard text into a
+# tmux buffer and `paste-buffer` directly into the pane's pty. Works
+# regardless of which window has X focus, no race with the menu, no
+# wl-paste / xclip flash on the dock.
+text=""
+if [ -n "${helper_text:-}" ]; then
+  text="$helper_text"
+fi
+if [ -z "$text" ]; then
+  text=$(timeout 0.8 xclip -selection clipboard -o 2>/dev/null)
+fi
+if [ -z "$text" ]; then
+  text=$(timeout 0.8 /usr/bin/wl-paste --no-newline 2>/dev/null)
+fi
+
+if [ -n "$text" ]; then
+  printf '%s' "$text" | tmux load-buffer -b fp_paste - 2>>"$LOG" \
+    && tmux paste-buffer -d -p -b fp_paste -t "$pane" 2>>"$LOG"
+  rc=$?
+  log "tmux paste-buffer rc=$rc bytes=${#text}"
+  clog "paste-dispatch" "event=text-paste-via-tmux-buffer" "rc=$rc" "bytes=${#text}"
+  exit 0
+fi
+
+# Clipboard genuinely empty — fall through to last-resort ydotool.
 if command -v ydotool >/dev/null 2>&1; then
   export YDOTOOL_SOCKET="${YDOTOOL_SOCKET:-$XDG_RUNTIME_DIR/.ydotool_socket}"
-  log "ydotool branch: socket='$YDOTOOL_SOCKET' exists=$([ -S "$YDOTOOL_SOCKET" ] && echo yes || echo no)"
+  log "ydotool branch (no text on clipboard): socket='$YDOTOOL_SOCKET'"
   if [ -S "$YDOTOOL_SOCKET" ]; then
     ydotool key ctrl+shift+v 2>>"$LOG"
     rc=$?
@@ -674,6 +642,6 @@ if command -v ydotool >/dev/null 2>&1; then
   fi
 fi
 
-# Last-resort fallback — just send Ctrl+V to the pane.
-log "FALLBACK send-keys C-v (no kitty socket, no ydotool socket)"
+# Last-resort: write a literal Ctrl-V into the pane's pty.
+log "FALLBACK send-keys C-v (no clipboard text, no ydotool socket)"
 tmux send-keys -t "$pane" C-v

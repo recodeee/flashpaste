@@ -1,0 +1,115 @@
+name: Bug report
+description: Report a defect in FlashPaste
+title: "[bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Before filing, please:
+
+        1. Run `flashpaste-doctor` and paste the output below.
+        2. Walk the [troubleshooting flowchart](https://github.com/NagyVikt/flashpaste/blob/main/docs/troubleshooting.md).
+        3. Search existing issues — yours may already be tracked.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. What did you do, what did you expect, what actually happened?
+      placeholder: |
+        Pressed PrtScr → right-click → Paste in a tmux pane running Claude Code.
+        Expected the screenshot to attach. Instead, nothing happened.
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: flashpaste-doctor output
+      description: Run `flashpaste-doctor` and paste the full output here.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: tmux-paste-log
+    attributes:
+      label: Last 50 lines of ~/.local/state/tmux-paste.log
+      description: "`tail -n 50 ~/.local/state/tmux-paste.log`"
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: pipeline-log
+    attributes:
+      label: Last 50 lines of ~/.local/state/clipboard-pipeline.log
+      description: "`tail -n 50 ~/.local/state/clipboard-pipeline.log`"
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: distro
+    attributes:
+      label: Distribution
+      options:
+        - Ubuntu 24.04 LTS
+        - Debian 13 (Trixie)
+        - Fedora 40+
+        - Pop!_OS 24.04+
+        - Arch / Manjaro
+        - NixOS
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: kitty-version
+    attributes:
+      label: kitty version
+      description: Output of `kitty --version`
+      placeholder: "kitty 0.32.2"
+    validations:
+      required: true
+
+  - type: input
+    id: tmux-version
+    attributes:
+      label: tmux version
+      description: Output of `tmux -V`
+      placeholder: "tmux 3.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: tier
+    attributes:
+      label: Which performance tier are you on?
+      options:
+        - "Tier 1 — bash hot path (default)"
+        - "Tier 2 — flashpaste-dispatch (Rust one-shot)"
+        - "Tier 3 — flashpasted daemon + flashpaste-trigger"
+        - "Not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: flashpaste-version
+    attributes:
+      label: FlashPaste version
+      description: Output of `flashpaste --version` or the release tag you installed
+      placeholder: "v1.19"
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I have read [docs/troubleshooting.md](https://github.com/NagyVikt/flashpaste/blob/main/docs/troubleshooting.md)
+          required: true
+        - label: I have searched existing issues for duplicates
+          required: true

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630"
+     preserveAspectRatio="xMidYMid meet" role="img"
+     aria-label="FlashPaste — sub-15ms image-paste for terminal AI agents on GNOME Wayland">
+  <title>FlashPaste · sub-15ms image-paste for terminal AI agents</title>
+  <desc>Social card for FlashPaste. Dark GitHub-themed background, large FlashPaste wordmark, tagline, and three tier badges (Tier 1 127ms red, Tier 2 40ms orange, Tier 3 15ms green).</desc>
+
+  <defs>
+    <linearGradient id="og-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%"   stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+
+    <linearGradient id="og-red" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#f85149"/>
+      <stop offset="100%" stop-color="#da3633"/>
+    </linearGradient>
+    <linearGradient id="og-orange" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#db6d28"/>
+    </linearGradient>
+    <linearGradient id="og-green" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#56d364"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+
+    <!-- Faint paste-flow arrow used as a background pattern. -->
+    <g id="og-arrow">
+      <path d="M0 12 L60 12 L52 4 M60 12 L52 20"
+            fill="none" stroke="#7ee787" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+
+    <pattern id="og-pattern" x="0" y="0" width="120" height="80"
+             patternUnits="userSpaceOnUse">
+      <use href="#og-arrow" x="0"  y="10"/>
+      <use href="#og-arrow" x="60" y="50"/>
+    </pattern>
+  </defs>
+
+  <style>
+    .word    { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+               font-weight: 800; fill: #e6edf3; }
+    .tag     { font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+               font-weight: 400; fill: #8b949e; }
+    .badge   { font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+               font-weight: 700; fill: #e6edf3; }
+    .repo    { font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace;
+               font-size: 22px; fill: #8b949e; }
+    .accent  { fill: #7ee787; }
+  </style>
+
+  <!-- Background -->
+  <rect width="1200" height="630" fill="url(#og-bg)"/>
+  <rect width="1200" height="630" fill="url(#og-pattern)" opacity="0.08"/>
+
+  <!-- Thin top accent bar -->
+  <rect x="0" y="0" width="1200" height="4" fill="#7ee787" opacity="0.7"/>
+
+  <!-- Wordmark -->
+  <text x="600" y="216" text-anchor="middle" class="word" font-size="120">
+    <tspan class="accent">Flash</tspan><tspan>Paste</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <text x="600" y="270" text-anchor="middle" class="tag" font-size="28">
+    Sub-15ms image-paste for terminal AI agents on GNOME Wayland
+  </text>
+
+  <!-- Tier badges row, mid-canvas -->
+  <g transform="translate(150, 360)">
+    <!-- Tier 1 -->
+    <g transform="translate(0, 0)">
+      <rect width="280" height="100" rx="14" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+      <rect x="0" y="0" width="6" height="100" rx="3" fill="url(#og-red)"/>
+      <text x="140" y="44" text-anchor="middle" class="badge" font-size="22">Tier 1 · bash</text>
+      <text x="140" y="78" text-anchor="middle" class="badge" font-size="32" fill="#f85149">127 ms</text>
+    </g>
+
+    <!-- Tier 2 -->
+    <g transform="translate(310, 0)">
+      <rect width="280" height="100" rx="14" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+      <rect x="0" y="0" width="6" height="100" rx="3" fill="url(#og-orange)"/>
+      <text x="140" y="44" text-anchor="middle" class="badge" font-size="22">Tier 2 · Rust one-shot</text>
+      <text x="140" y="78" text-anchor="middle" class="badge" font-size="32" fill="#f0883e">40 ms</text>
+    </g>
+
+    <!-- Tier 3 -->
+    <g transform="translate(620, 0)">
+      <rect width="280" height="100" rx="14" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+      <rect x="0" y="0" width="6" height="100" rx="3" fill="url(#og-green)"/>
+      <text x="140" y="44" text-anchor="middle" class="badge" font-size="22">Tier 3 · daemon</text>
+      <text x="140" y="78" text-anchor="middle" class="badge" font-size="32" fill="#7ee787">15 ms</text>
+    </g>
+  </g>
+
+  <!-- Sub-detail under badges -->
+  <text x="600" y="510" text-anchor="middle" class="tag" font-size="20">
+    PrtScr → image attached · keystroke to byte landing in the inner TUI
+  </text>
+
+  <!-- Repo URL bottom-right -->
+  <text x="1168" y="590" text-anchor="end" class="repo">
+    github.com/NagyVikt/flashpaste
+  </text>
+
+  <!-- Small left-bottom marker -->
+  <text x="32" y="590" class="repo" fill="#6e7681">
+    MIT · Ubuntu 24.04 · kitty + tmux
+  </text>
+</svg>

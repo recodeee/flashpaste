@@ -10,16 +10,23 @@
 
 <a href="#install"><img alt="Install" src="https://img.shields.io/badge/install-curl%20%7C%20bash-238636?style=flat-square&logo=gnubash&logoColor=white"></a>
 <a href="https://github.com/NagyVikt/flashpaste/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/NagyVikt/flashpaste?style=flat-square&color=1f6feb&label=release"></a>
+<a href="https://github.com/NagyVikt/flashpaste/actions/workflows/lint.yml"><img alt="Lint CI" src="https://github.com/NagyVikt/flashpaste/actions/workflows/lint.yml/badge.svg"></a>
+<a href="https://github.com/NagyVikt/flashpaste/actions/workflows/release.yml"><img alt="Release CI" src="https://github.com/NagyVikt/flashpaste/actions/workflows/release.yml/badge.svg"></a>
 <a href="LICENSE"><img alt="MIT licensed" src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square"></a>
 <a href="#performance-tiers"><img alt="Latency tier 3" src="https://img.shields.io/badge/tier%203-%3C15ms-7ee787?style=flat-square&logo=rust&logoColor=white"></a>
 <img alt="Stack: GNOME Wayland + kitty + tmux" src="https://img.shields.io/badge/stack-Wayland%20%C2%B7%20kitty%20%C2%B7%20tmux-79c0ff?style=flat-square">
 <img alt="Language: Rust + bash" src="https://img.shields.io/badge/built%20with-Rust%20%2B%20bash-f0883e?style=flat-square&logo=rust&logoColor=white">
+<a href="https://aur.archlinux.org/packages/flashpaste"><img alt="AUR" src="https://img.shields.io/badge/AUR-flashpaste-1793D1?style=flat-square&logo=archlinux&logoColor=white"></a>
 
-[Install](#install) · [Configure](#configure) · [How it works](#how-it-works) · [Performance](#performance) · [FAQ](#faq) · [Troubleshooting](#troubleshooting) · [Docs](docs/README.md) · [For agents & contributors](#for-agents--contributors)
+[Install](#install) · [Configure](#configure) · [How it works](#how-it-works) · [Performance](#performance) · [FAQ](#faq) · [Troubleshooting](#troubleshooting) · [Docs](docs/README.md) · [Changelog](CHANGELOG.md) · [For agents & contributors](#for-agents--contributors)
 
 <br>
 
-<img src="assets/hero-flow.svg" alt="FlashPaste paste flow: PrtScr keystroke travels through PNG file, xclip preload, tmux unbind, kitty send-text, and arrives as an attached image in Claude Code in approximately 120 milliseconds" width="100%">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/hero-flow.svg">
+  <source media="(prefers-color-scheme: light)" srcset="assets/hero-flow-light.svg">
+  <img src="assets/hero-flow.svg" alt="FlashPaste paste flow: PrtScr keystroke travels through PNG file, xclip preload, tmux unbind, kitty send-text, and arrives as an attached image in Claude Code in approximately 120 milliseconds" width="100%">
+</picture>
 
 </div>
 
@@ -495,12 +502,29 @@ Long-form docs live under [`docs/`](docs/README.md). Each page is self-contained
 | [Comparison](docs/comparison.md) | FlashPaste vs `wl-clip-persist`, `cliphist`, OSC 52 |
 | [Use cases](docs/use-cases.md) | Specific scenarios: Claude Code on Ubuntu, Codex on Fedora, Aider on Debian, MCP-driven captures |
 | [Glossary](docs/glossary.md) | Definitions of every domain term — `mutter`, surfaceless client, recursion guard, `wl-data-control`, etc. |
+| [Architecture Decision Records](docs/adr/README.md) | The *why* behind major design choices — three tiers, xclip vs wl-clipboard, kitty send-text, has_image policy, unbind-rebind |
+
+**Project-health files:**
+
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — Human contributor guide (AGENTS.md is the AI-agent companion)
+- [`SECURITY.md`](SECURITY.md) — Security policy and reporting channel
+- [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) — Contributor Covenant 2.1
+- [`CHANGELOG.md`](CHANGELOG.md) — Keep-a-Changelog history from v1.0 → current
+- [`AGENTS.md`](AGENTS.md) — Rules for AI agents and the non-negotiable release workflow
+
+**Distribution channels:**
+
+- [`packaging/aur/`](packaging/aur/) — AUR PKGBUILDs (stable `flashpaste` + `flashpaste-git`)
+- [`packaging/homebrew/`](packaging/homebrew/) — Homebrew tap formula
+- [`flake.nix`](flake.nix) — Nix flake (`nix run github:NagyVikt/flashpaste`)
 
 **Machine-readable surface:**
 
-- [`llms.txt`](llms.txt) — AI-crawler manifest per the [llmstxt.org](https://llmstxt.org) standard. Points LLM crawlers at the canonical docs tree.
-- [`CITATION.cff`](CITATION.cff) — Citation File Format metadata. Use it if you reference FlashPaste in writing.
-- [`AGENTS.md`](AGENTS.md) — Authoritative rules for AI agents and human contributors editing the repo.
+- [`llms.txt`](llms.txt) — AI-crawler manifest per the [llmstxt.org](https://llmstxt.org) standard
+- [`CITATION.cff`](CITATION.cff) — Citation File Format metadata
+- [`assets/og-image.svg`](assets/og-image.svg) — 1200×630 social-card
+
+**Performance:** `make bench` runs a reproducible benchmark across all available tiers and emits a percentile table. See [`bin/flashpaste-bench.sh`](bin/flashpaste-bench.sh) for the flag surface (`--iterations`, `--warmup`, `--tier`, `--format`, `--fail-on-regression`).
 
 ## For agents & contributors
 

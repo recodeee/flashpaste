@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest a new capability or improvement
+title: "[feat] "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user-visible problem are you trying to solve? Not the solution — the problem.
+      placeholder: |
+        When I paste a screenshot into Claude Code on Alacritty, nothing happens.
+        FlashPaste only documents kitty.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would the ideal behaviour look like? Pseudo-config, command examples, screenshots welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds have you tried? Why aren't they enough?
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - Bash hot path (Tier 1)
+        - Rust one-shot dispatch (Tier 2)
+        - Daemon + trigger (Tier 3)
+        - flashpaste-shoot (capture)
+        - flashpaste-mcp (agent integration)
+        - Docs / examples
+        - Packaging / distribution
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willingness
+    attributes:
+      label: Are you willing to help?
+      options:
+        - label: I am willing to send a PR
+        - label: I am willing to test a PR from a maintainer

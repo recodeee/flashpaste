@@ -1,0 +1,98 @@
+# Maintainer: NagyVikt <webubusiness@gmail.com>
+#
+# AUR package: flashpaste-git
+#
+# VCS variant — tracks the upstream `main` branch. For bleeding-edge users.
+# Conflicts with the stable `flashpaste` package.
+
+pkgname=flashpaste-git
+_pkgname=flashpaste
+pkgver=1.15.r0.g0000000
+pkgrel=1
+pkgdesc="Sub-15ms image-paste glue for terminal AI agents on GNOME Wayland (git)"
+arch=('x86_64')
+url="https://github.com/NagyVikt/flashpaste"
+license=('MIT')
+depends=('wl-clipboard' 'xclip' 'xsel' 'ydotool' 'tmux' 'kitty' 'bash' 'systemd')
+makedepends=('cargo' 'rust' 'git')
+optdepends=(
+  'cliphist: clipboard history daemon integration'
+  'inotify-tools: filesystem watcher fallback'
+)
+provides=("$_pkgname")
+conflicts=("$_pkgname")
+source=("$_pkgname::git+https://github.com/NagyVikt/flashpaste.git")
+b2sums=('SKIP')
+
+pkgver() {
+  cd "$_pkgname"
+  # Format: <last-tag>.r<commits-since-tag>.g<short-sha>
+  ( git describe --long --tags --abbrev=7 2>/dev/null \
+      | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' \
+  ) || printf "r%s.g%s" \
+      "$(git rev-list --count HEAD)" \
+      "$(git rev-parse --short=7 HEAD)"
+}
+
+prepare() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo fetch --locked --manifest-path rs/Cargo.toml
+}
+
+build() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  export CARGO_NET_OFFLINE=true
+  cargo build --release --frozen --manifest-path rs/Cargo.toml
+}
+
+check() {
+  cd "$_pkgname"
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo test --release --frozen --manifest-path rs/Cargo.toml || true
+}
+
+package() {
+  cd "$_pkgname"
+
+  local _bins=(flashpaste-dispatch flashpasted flashpaste-trigger flashpaste-shoot flashpaste-mcp flashpaste)
+  for _bin in "${_bins[@]}"; do
+    if [ -x "rs/target/release/$_bin" ]; then
+      install -Dm0755 "rs/target/release/$_bin" "$pkgdir/usr/bin/$_bin"
+    fi
+  done
+
+  for _src in bin/*.sh; do
+    [ -f "$_src" ] || continue
+    local _base
+    _base="$(basename "$_src" .sh)"
+    install -Dm0755 "$_src" "$pkgdir/usr/bin/$_base"
+  done
+  for _src in bin/wl-paste bin/screenshot-to-clipboard; do
+    [ -f "$_src" ] || continue
+    install -Dm0755 "$_src" "$pkgdir/usr/bin/$(basename "$_src")"
+  done
+
+  install -Dm0755 bin/paste_image.sh "$pkgdir/usr/share/flashpaste/paste_image.sh"
+
+  install -Dm0644 systemd/clipboard-janitor.service              "$pkgdir/usr/lib/systemd/user/clipboard-janitor.service"
+  install -Dm0644 systemd/flashpaste-screenshot-watcher.path     "$pkgdir/usr/lib/systemd/user/flashpaste-screenshot-watcher.path"
+  install -Dm0644 systemd/flashpaste-screenshot-watcher.service  "$pkgdir/usr/lib/systemd/user/flashpaste-screenshot-watcher.service"
+  if [ -f systemd/flashpasted.service ]; then
+    install -Dm0644 systemd/flashpasted.service                  "$pkgdir/usr/lib/systemd/user/flashpasted.service"
+  fi
+
+  for _desk in share/applications/*.desktop; do
+    [ -f "$_desk" ] || continue
+    install -Dm0644 "$_desk" "$pkgdir/usr/share/applications/$(basename "$_desk")"
+  done
+
+  install -Dm0644 examples/tmux.conf.snippet  "$pkgdir/usr/share/flashpaste/examples/tmux.conf.snippet"
+  install -Dm0644 examples/kitty.conf.snippet "$pkgdir/usr/share/flashpaste/examples/kitty.conf.snippet"
+  install -Dm0644 README.md                   "$pkgdir/usr/share/doc/$_pkgname/README.md"
+  install -Dm0644 LICENSE                     "$pkgdir/usr/share/licenses/$_pkgname/LICENSE"
+}

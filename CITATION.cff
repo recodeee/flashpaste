@@ -1,0 +1,34 @@
+cff-version: 1.2.0
+title: "FlashPaste: sub-120ms image-paste glue for terminal AI agents on GNOME Wayland"
+message: "If you reference FlashPaste in writing, please cite it as below."
+type: software
+authors:
+  - given-names: Viktor
+    family-names: Nagy
+    alias: NagyVikt
+repository-code: "https://github.com/NagyVikt/flashpaste"
+url: "https://github.com/NagyVikt/flashpaste"
+abstract: >
+  FlashPaste is a clipboard-glue toolkit for GNOME Wayland that makes
+  image-paste work reliably into terminal AI agents (Claude Code, Codex CLI,
+  Aider). It works around mutter's surfaceless-client clipboard refusal,
+  kitty's keybinding interception, and tmux's C-v recursion through three
+  progressive performance tiers: a bash hot path (~127 ms), a Rust one-shot
+  dispatcher (<40 ms), and a persistent daemon (<15 ms). Tier 1 is always
+  installed; Tiers 2 and 3 are progressive enhancements that fall back
+  transparently.
+keywords:
+  - clipboard
+  - wayland
+  - gnome
+  - mutter
+  - kitty
+  - tmux
+  - claude-code
+  - codex-cli
+  - aider
+  - image-paste
+  - terminal-ai
+  - llm-agent
+  - linux
+license: MIT

@@ -12,7 +12,7 @@ REPO_ROOT := $(shell pwd)
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
 VERSION := $(if $(VERSION),$(VERSION),0.1.0)
 
-.PHONY: deb install doctor uninstall clean release-deb help
+.PHONY: deb install doctor uninstall clean release-deb help bench bench-tier1 bench-tier3 bench-markdown
 
 help:
 	@echo "flashpaste — make targets:"
@@ -22,6 +22,10 @@ help:
 	@echo "  make uninstall     remove symlinks"
 	@echo "  make clean         delete dist/"
 	@echo "  make release-deb   build .deb ready for GitHub Releases"
+	@echo "  make bench         dispatch latency benchmark (all tiers)"
+	@echo "  make bench-tier1   bench Tier 1 only"
+	@echo "  make bench-tier3   bench Tier 3 only"
+	@echo "  make bench-markdown bench all tiers, markdown table output"
 
 deb:
 	VERSION=$(VERSION) bash packaging/build-deb.sh
@@ -54,3 +58,19 @@ release-deb: deb
 	@echo "release-deb produced: dist/flashpaste_$(VERSION)_all.deb"
 	@echo "Upload to GitHub Releases:"
 	@echo "  gh release create v$(VERSION) dist/flashpaste_$(VERSION)_all.deb --title 'flashpaste v$(VERSION)' --generate-notes"
+
+# ---------------------------------------------------------------------------
+# Benchmarks
+# ---------------------------------------------------------------------------
+
+bench: ## Run the dispatch latency benchmark (100 iterations, all tiers)
+	@bash bin/flashpaste-bench.sh
+
+bench-tier1: ## Bench Tier 1 only (bash hot path)
+	@bash bin/flashpaste-bench.sh --tier 1
+
+bench-tier3: ## Bench Tier 3 only (daemon + trigger)
+	@bash bin/flashpaste-bench.sh --tier 3
+
+bench-markdown: ## Bench all tiers, emit a markdown table
+	@bash bin/flashpaste-bench.sh --format markdown

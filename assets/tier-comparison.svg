@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 320" role="img"
+     aria-label="Tier comparison: bash 127 milliseconds, Rust dispatch 40 milliseconds, daemon 15 milliseconds">
+  <title>FlashPaste latency tiers</title>
+  <desc>Animated bar chart comparing dispatch latency across the three FlashPaste tiers. Bash hot path: 127 ms. Rust one-shot dispatch: 40 ms. Long-lived daemon: 15 ms. Baseline: ~3000 ms without flashpaste.</desc>
+
+  <defs>
+    <linearGradient id="bgc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+    <linearGradient id="redbar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f85149"/>
+      <stop offset="100%" stop-color="#da3633"/>
+    </linearGradient>
+    <linearGradient id="orangebar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#f0883e"/>
+      <stop offset="100%" stop-color="#db6d28"/>
+    </linearGradient>
+    <linearGradient id="yellowbar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#e3b341"/>
+      <stop offset="100%" stop-color="#bb8009"/>
+    </linearGradient>
+    <linearGradient id="greenbar" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#56d364"/>
+      <stop offset="100%" stop-color="#238636"/>
+    </linearGradient>
+  </defs>
+
+  <style>
+    .title { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-weight: 700; fill: #e6edf3; font-size: 18px; }
+    .sub   { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; fill: #8b949e; font-size: 12px; }
+    .name  { font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 13px; fill: #c9d1d9; }
+    .ms    { font-family: ui-monospace, "SFMono-Regular", monospace; font-size: 14px; font-weight: 700; fill: #e6edf3; }
+    .axis  { font-family: ui-monospace, monospace; font-size: 10px; fill: #6e7681; }
+  </style>
+
+  <rect width="720" height="320" fill="url(#bgc)" rx="14"/>
+
+  <text x="32" y="40" class="title">Dispatch latency · lower is better</text>
+  <text x="32" y="60" class="sub">measured end-to-end · keystroke → byte landing in the inner TUI</text>
+
+  <line x1="220" y1="86" x2="220" y2="280" stroke="#30363d" stroke-width="1" stroke-dasharray="2 3"/>
+
+  <g transform="translate(220, 100)">
+    <rect width="0" height="34" fill="url(#redbar)" rx="4">
+      <animate attributeName="width" from="0" to="450" dur="1.6s" fill="freeze"/>
+    </rect>
+    <text x="-12" y="22" text-anchor="end" class="name">no flashpaste</text>
+    <text x="460" y="22" class="ms" opacity="0">
+      <animate attributeName="opacity" from="0" to="1" begin="1.4s" dur="0.4s" fill="freeze"/>
+      ~3000 ms · 5–15 paste presses
+    </text>
+  </g>
+
+  <g transform="translate(220, 150)">
+    <rect width="0" height="34" fill="url(#orangebar)" rx="4">
+      <animate attributeName="width" from="0" to="190" dur="1.4s" begin="0.2s" fill="freeze"/>
+    </rect>
+    <text x="-12" y="22" text-anchor="end" class="name">Tier 1 · bash</text>
+    <text x="200" y="22" class="ms" opacity="0">
+      <animate attributeName="opacity" from="0" to="1" begin="1.4s" dur="0.4s" fill="freeze"/>
+      127 ms
+    </text>
+  </g>
+
+  <g transform="translate(220, 200)">
+    <rect width="0" height="34" fill="url(#yellowbar)" rx="4">
+      <animate attributeName="width" from="0" to="60" dur="1.2s" begin="0.4s" fill="freeze"/>
+    </rect>
+    <text x="-12" y="22" text-anchor="end" class="name">Tier 2 · Rust one-shot</text>
+    <text x="70" y="22" class="ms" opacity="0">
+      <animate attributeName="opacity" from="0" to="1" begin="1.4s" dur="0.4s" fill="freeze"/>
+      &lt;40 ms
+    </text>
+  </g>
+
+  <g transform="translate(220, 250)">
+    <rect width="0" height="34" fill="url(#greenbar)" rx="4">
+      <animate attributeName="width" from="0" to="22" dur="1.0s" begin="0.6s" fill="freeze"/>
+    </rect>
+    <text x="-12" y="22" text-anchor="end" class="name">Tier 3 · daemon</text>
+    <text x="32" y="22" class="ms" opacity="0">
+      <animate attributeName="opacity" from="0" to="1" begin="1.4s" dur="0.4s" fill="freeze"/>
+      &lt;15 ms
+    </text>
+  </g>
+
+  <g transform="translate(220, 295)">
+    <text x="0"   y="0" class="axis">0</text>
+    <text x="65"  y="0" class="axis">40</text>
+    <text x="195" y="0" class="axis">127</text>
+    <text x="455" y="0" class="axis">3000 ms</text>
+  </g>
+</svg>

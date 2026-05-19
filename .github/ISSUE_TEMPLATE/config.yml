@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/NagyVikt/flashpaste/blob/main/docs/troubleshooting.md
+    about: Walk the diagnostic flowchart and the symptom-to-fix table before opening an issue.
+  - name: FAQ
+    url: https://github.com/NagyVikt/flashpaste/blob/main/docs/faq.md
+    about: 25+ Q&A entries on install, performance, integration, and alternatives.
+  - name: Discussions
+    url: https://github.com/NagyVikt/flashpaste/discussions
+    about: Ask a question, share a workflow, or propose a design before filing a feature request.

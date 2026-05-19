@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 260" role="img"
+     aria-label="FlashPaste paste flow: PrtScr key to image attached in 120 milliseconds across kitty, tmux, xclip, and Claude Code">
+  <title>FlashPaste paste flow — PrtScr to image-attached in ~120 ms</title>
+  <desc>A glowing dot traverses six pipeline stages: keystroke, PNG file, xclip preload, tmux unbind, kitty send-text, image attached. Each stage lights up as the dot passes.</desc>
+
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b22"/>
+    </linearGradient>
+
+    <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"  stop-color="#7ee787" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#7ee787" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#7ee787" stop-opacity="0"/>
+    </linearGradient>
+
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#30363d"/>
+    </marker>
+
+    <g id="stage">
+      <rect width="130" height="64" rx="10" fill="#21262d" stroke="#30363d" stroke-width="1"/>
+    </g>
+  </defs>
+
+  <style>
+    .label   { font-family: ui-monospace, "SFMono-Regular", "Menlo", monospace; font-size: 13px; fill: #c9d1d9; }
+    .accent  { fill: #7ee787; font-weight: 700; }
+    .blue    { fill: #79c0ff; }
+    .muted   { font-size: 10px; fill: #8b949e; }
+    .timing  { font-size: 11px; fill: #f0883e; font-weight: 700; }
+    .title   { font-family: -apple-system, "Segoe UI", system-ui, sans-serif; font-size: 14px; font-weight: 700; fill: #e6edf3; }
+
+    .stage rect { transition: stroke 240ms ease, fill 240ms ease; }
+    .stage.lit rect { stroke: #7ee787; fill: #1f3a25; }
+
+    @keyframes pulse-1 { 0%, 100% { stroke: #30363d; fill: #21262d; } 12%, 16% { stroke: #7ee787; fill: #1f3a25; } }
+    @keyframes pulse-2 { 0%, 100% { stroke: #30363d; fill: #21262d; } 26%, 30% { stroke: #7ee787; fill: #1f3a25; } }
+    @keyframes pulse-3 { 0%, 100% { stroke: #30363d; fill: #21262d; } 40%, 44% { stroke: #7ee787; fill: #1f3a25; } }
+    @keyframes pulse-4 { 0%, 100% { stroke: #30363d; fill: #21262d; } 54%, 58% { stroke: #7ee787; fill: #1f3a25; } }
+    @keyframes pulse-5 { 0%, 100% { stroke: #30363d; fill: #21262d; } 68%, 72% { stroke: #7ee787; fill: #1f3a25; } }
+    @keyframes pulse-6 { 0%, 100% { stroke: #30363d; fill: #21262d; } 82%, 100% { stroke: #7ee787; fill: #1f3a25; } }
+
+    #s1 rect { animation: pulse-1 3.6s ease-in-out infinite; }
+    #s2 rect { animation: pulse-2 3.6s ease-in-out infinite; }
+    #s3 rect { animation: pulse-3 3.6s ease-in-out infinite; }
+    #s4 rect { animation: pulse-4 3.6s ease-in-out infinite; }
+    #s5 rect { animation: pulse-5 3.6s ease-in-out infinite; }
+    #s6 rect { animation: pulse-6 3.6s ease-in-out infinite; }
+  </style>
+
+  <rect width="960" height="260" fill="url(#bg)" rx="14"/>
+
+  <text x="32" y="38" class="title">FlashPaste · paste flow</text>
+  <text x="32" y="58" class="label muted">PrtScr → image attached in ~120&#160;ms · ~15&#160;ms on the daemon</text>
+
+  <g transform="translate(0, 100)">
+    <path d="M 95 32 L 925 32" stroke="#21262d" stroke-width="2" stroke-dasharray="4 4"/>
+
+    <g id="s1" class="stage" transform="translate(30,0)">
+      <use href="#stage"/>
+      <text x="65" y="28" text-anchor="middle" class="label accent">PrtScr</text>
+      <text x="65" y="48" text-anchor="middle" class="label muted">keystroke</text>
+    </g>
+
+    <g id="s2" class="stage" transform="translate(180,0)">
+      <use href="#stage"/>
+      <text x="65" y="28" text-anchor="middle" class="label blue">PNG saved</text>
+      <text x="65" y="48" text-anchor="middle" class="label muted">~/Pictures/Screenshots</text>
+    </g>
+
+    <g id="s3" class="stage" transform="translate(330,0)">
+      <use href="#stage"/>
+      <text x="65" y="28" text-anchor="middle" class="label blue">xclip preload</text>
+      <text x="65" y="48" text-anchor="middle" class="label muted">T+37&#160;ms</text>
+    </g>
+
+    <g id="s4" class="stage" transform="translate(480,0)">
+      <use href="#stage"/>
+      <text x="65" y="28" text-anchor="middle" class="label blue">tmux unbind</text>
+      <text x="65" y="48" text-anchor="middle" class="label muted">T+99&#160;ms</text>
+    </g>
+
+    <g id="s5" class="stage" transform="translate(630,0)">
+      <use href="#stage"/>
+      <text x="65" y="28" text-anchor="middle" class="label blue">kitty @ send-text</text>
+      <text x="65" y="48" text-anchor="middle" class="label muted">T+125&#160;ms</text>
+    </g>
+
+    <g id="s6" class="stage" transform="translate(780,0)">
+      <use href="#stage"/>
+      <text x="65" y="28" text-anchor="middle" class="label accent">Image attached</text>
+      <text x="65" y="48" text-anchor="middle" class="label muted">Claude Code · TUI</text>
+    </g>
+
+    <circle r="7" fill="#7ee787" filter="url(#glow)">
+      <animateMotion dur="3.6s" repeatCount="indefinite" rotate="auto"
+        path="M 95 32 L 240 32 L 390 32 L 540 32 L 690 32 L 840 32"/>
+    </circle>
+    <circle r="3" fill="#ffffff" filter="url(#glow)">
+      <animateMotion dur="3.6s" repeatCount="indefinite"
+        path="M 95 32 L 240 32 L 390 32 L 540 32 L 690 32 L 840 32"/>
+    </circle>
+  </g>
+
+  <g transform="translate(0, 220)">
+    <text x="480" y="0" text-anchor="middle" class="timing">
+      Tier 1 (bash) · ~127 ms      Tier 2 (Rust one-shot) · &lt;40 ms      Tier 3 (daemon) · &lt;15 ms
+    </text>
+  </g>
+</svg>
