@@ -63,7 +63,36 @@ Total dispatch latency: **~120ms**, down from ~3 seconds and 4 paste-presses wit
 
 ## Quick start
 
-**One line:**
+### Option A — Debian / Ubuntu .deb (recommended)
+
+Each tagged release attaches a `.deb` to GitHub Releases. Install via apt:
+
+```bash
+# Once a release exists:
+curl -fsSL -o /tmp/flashpaste.deb \
+  https://github.com/NagyVikt/flashpaste/releases/latest/download/flashpaste_all.deb
+sudo apt install /tmp/flashpaste.deb
+
+# Then per-user activation:
+systemctl --user daemon-reload
+systemctl --user enable --now clipboard-janitor.service
+systemctl --user enable --now flashpaste-screenshot-watcher.path
+cat /usr/share/flashpaste/examples/tmux.conf.snippet  >> ~/.tmux.conf
+cat /usr/share/flashpaste/examples/kitty.conf.snippet >> ~/.config/kitty/kitty.conf
+ln -sf /usr/share/flashpaste/paste_image.sh ~/paste_image.sh
+flashpaste-doctor
+```
+
+Or build the .deb yourself from a checkout:
+
+```bash
+git clone https://github.com/NagyVikt/flashpaste.git
+cd flashpaste
+make deb                                    # → dist/flashpaste_*_all.deb
+sudo apt install ./dist/flashpaste_*_all.deb
+```
+
+### Option B — One-line dotfile install (no apt)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NagyVikt/flashpaste/main/bootstrap.sh | bash
