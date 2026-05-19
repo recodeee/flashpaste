@@ -126,15 +126,25 @@ async fn run_owner(state: Arc<SharedState>) {
                 // (focus races etc.) should keep retrying on next stage.
                 if msg.contains("ext-data-control") || msg.contains("wlr-data-control") {
                     if !WAYLAND_WEDGED.swap(true, Ordering::Relaxed) {
-                        warn!(
-                            error = %e,
-                            "Wayland copy() failed: compositor has no data-control protocol — latching off, X11 owner will handle paste"
+                        // INFO not WARN: on GNOME mutter this is a known
+                        // permanent fact, not an error. The user saw this
+                        // line every daemon restart and reasonably read it
+                        // as "something is broken". Logging it once at
+                        // INFO with explicit "this is fine; X11 path is
+                        // active" wording keeps the diagnostic available
+                        // (people running on wlroots compositors should
+                        // NOT see this) without crying wolf.
+                        info!(
+                            "Wayland clipboard: compositor lacks data-control protocol \
+                             (GNOME mutter is expected; this is fine) — X11 owner will \
+                             handle all paste claims for this session"
                         );
                     }
                 } else {
+                    // Genuine unexpected error — keep WARN.
                     warn!(
                         error = %e,
-                        "Wayland copy() failed (likely Mutter wedge); continuing with X11 only"
+                        "Wayland copy() failed unexpectedly (not a known mutter wedge); continuing with X11 only"
                     );
                 }
             }

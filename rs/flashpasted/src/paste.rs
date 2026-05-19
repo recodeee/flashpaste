@@ -21,8 +21,9 @@ use anyhow::{Context, Result};
 use tracing::{debug, info, warn};
 
 use crate::kitty;
-use crate::state::{now_unix_ms, SharedState, StagedImage};
+use crate::state::{now_unix_ms, SharedState, StagedImage, StagedText};
 use crate::tmux;
+use tokio::io::AsyncWriteExt;
 
 /// How long to wait before re-binding `C-v` in tmux. The bash dispatcher
 /// settled on 100ms after observing that anything shorter races the
@@ -39,8 +40,23 @@ const TMUX_REBIND_DELAY: Duration = Duration::from_millis(100);
 pub async fn dispatch_image_paste(
     state: Arc<SharedState>,
     pane: String,
-    _staged: StagedImage,
+    staged: StagedImage,
 ) -> Result<()> {
+    // Pull out the "what are we actually pasting" payload-summary fields
+    // up front so every log line on this code path can include them. The
+    // user complained that the dispatched-paste log line was too abstract
+    // ("dispatched image paste pane=%X") and didn't say WHAT was being
+    // pasted — which mattered when an unexpected screenshot from minutes
+    // ago kept getting pasted because the daemon's slot was stale.
+    let payload_bytes = staged.bytes.len();
+    let payload_mime  = staged.mime;
+    let payload_path  = staged.path.display().to_string();
+    // Strip the directory and the "Screenshot from " prefix that GNOME
+    // always emits so the log line stays scannable.
+    let payload_name = staged.path.file_name()
+        .and_then(|n| n.to_str())
+        .map(|s| s.trim_start_matches("Screenshot from ").to_string())
+        .unwrap_or_else(|| "<no-name>".to_string());
     // Resolve the kitty IPC socket. The daemon could cache this at startup,
     // but kitty sometimes restarts (e.g. user reopens the terminal) and the
     // socket name embeds the kitty pid; resolving on each paste is cheap
@@ -89,7 +105,7 @@ pub async fn dispatch_image_paste(
     // matches `state.last_claim_request_image_ms`, the Wayland + X11
     // owners already claimed THIS image and there's no need to re-fire
     // the notifier (no SetSelectionOwner storm, no 8 ms sleep wasted).
-    let staged_id_ms = staged_image_id_ms(&_staged);
+    let staged_id_ms = staged_image_id_ms(&staged);
     let prev_claim_id = state
         .last_claim_request_image_ms
         .load(std::sync::atomic::Ordering::Acquire);
@@ -147,37 +163,39 @@ pub async fn dispatch_image_paste(
     // honest contract is "paste fires immediately; retry if the TUI
     // drops the byte." That cost is far below 5 s of guaranteed hang.)
 
-    // Step 2: unbind -n C-v. Must happen synchronously before the byte
-    // reaches tmux.
-    tmux::unbind_c_v().await.context("tmux unbind -n C-v")?;
-    let ms_unbind = take_phase();
-
-    // Step 3: kitty `send_text` with Ctrl-V byte.
-    if let Err(e) = kitty::send_ctrl_v(&kitty_sock, state.kitty_version).await {
-        // If kitty IPC fails, the user is wedged. The schedule_rebind below
-        // still needs to fire so we don't leave tmux without a C-v binding.
+    // Step 2: inject the Ctrl-V byte directly into the pane's pty via
+    // `tmux send-keys -l`. Before v1.26 this was `kitty @ send-text` +
+    // unbind/rebind theatrics; that approach only reached panes whose
+    // tmux client was attached to kitty (session 18 on this box),
+    // silently dropping every paste to other Claude Code panes on
+    // gnome-terminal etc. `tmux send-keys -l` writes the literal byte
+    // straight to the pane's pty regardless of attached client, and
+    // because `-l` bypasses the keytable we no longer need the
+    // unbind-C-v / schedule-rebind dance either.
+    if let Err(e) = tmux::send_ctrl_v_to_pane(&pane).await {
         let ms_kitty = take_phase();
         let ms_total = t_start.elapsed().as_millis() as u64;
         warn!(
             error = %e, pane,
             ms_socket, ms_reassert, ms_select, ms_snapshot, ms_copymode,
-            ms_unbind, ms_kitty, ms_total,
-            "kitty send_text failed — restoring tmux binding immediately (rebind scheduled at +10ms so C-v isn't left unbound)"
+            ms_kitty, ms_total,
+            "tmux send-keys -l ^V failed — paste byte did not reach pane"
         );
-        tmux::schedule_rebind(state.config.tmux_rebind_command.clone(), Duration::from_millis(10));
-        return Err(e.context("kitty send_text"));
+        return Err(e.context("tmux send-keys -l ^V"));
     }
     let ms_kitty = take_phase();
-
-    // Step 4: schedule the detached rebind. Returns immediately.
-    tmux::schedule_rebind(state.config.tmux_rebind_command.clone(), TMUX_REBIND_DELAY);
     let ms_total = t_start.elapsed().as_millis() as u64;
 
     info!(
         pane,
+        kind = "image",
+        payload_bytes,
+        payload_mime,
+        payload_name = %payload_name,
+        payload_path = %payload_path,
         ms_socket, ms_reassert, ms_select, ms_snapshot, ms_copymode,
-        ms_unbind, ms_kitty, ms_total,
-        "dispatched image paste"
+        ms_kitty, ms_total,
+        "PASTED image"
     );
     Ok(())
 }
@@ -186,6 +204,90 @@ pub async fn dispatch_image_paste(
 /// claim" in the notifier-skip path. Falls back to 0 if the SystemTime
 /// is before the Unix epoch (impossible in practice but the type forces
 /// us to handle it).
+/// Text-paste dispatch. Pipes the staged text bytes into a tmux buffer
+/// via `tmux load-buffer -` (stdin), then `tmux paste-buffer -p -t <pane>`
+/// writes the buffer bytes directly into the target pane's pty. No
+/// clipboard claim, no kitty IPC, no unbind/rebind dance — just two
+/// `tmux` forks and Claude Code reads the text as if the user typed it.
+///
+/// Works for ANY tmux pane regardless of which terminal hosts the tmux
+/// client (same property as `tmux send-keys -l ^V` for image paste).
+/// User contract (2026-05-19): "if last time was text and no new
+/// screenshot was taken, text should be pasted to each terminal" — this
+/// is what makes that contract hold across multiple panes.
+pub async fn dispatch_text_paste(
+    _state: Arc<SharedState>,
+    pane: String,
+    text: StagedText,
+) -> Result<()> {
+    let t_start = std::time::Instant::now();
+    let bytes_len = text.bytes.len();
+
+    // 1. load-buffer -b fp_text - (stdin)
+    let mut load = tokio::process::Command::new("tmux")
+        .args(["load-buffer", "-b", "fp_text", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("spawn tmux load-buffer")?;
+    {
+        let mut stdin = load
+            .stdin
+            .take()
+            .context("tmux load-buffer stdin not piped")?;
+        stdin
+            .write_all(&text.bytes)
+            .await
+            .context("write text to tmux load-buffer stdin")?;
+        // Drop closes stdin.
+    }
+    let load_status = load.wait().await.context("tmux load-buffer wait")?;
+    if !load_status.success() {
+        anyhow::bail!(
+            "tmux load-buffer returned non-zero: {:?} (bytes={})",
+            load_status,
+            bytes_len
+        );
+    }
+    let ms_load = t_start.elapsed().as_millis() as u64;
+
+    // 2. paste-buffer -p -t <pane> -b fp_text
+    //    -p: bracketed paste (Claude Code's TUI prefers this).
+    //    Buffer is consumed but not deleted (default behaviour), which
+    //    is fine — next dispatch overwrites it.
+    let t_paste = std::time::Instant::now();
+    let paste_status = tokio::process::Command::new("tmux")
+        .args(["paste-buffer", "-p", "-b", "fp_text", "-t", &pane])
+        .status()
+        .await
+        .context("spawn tmux paste-buffer")?;
+    let ms_paste = t_paste.elapsed().as_millis() as u64;
+    let ms_total = t_start.elapsed().as_millis() as u64;
+
+    if !paste_status.success() {
+        warn!(
+            pane,
+            bytes = bytes_len,
+            ms_load,
+            ms_paste,
+            ms_total,
+            "tmux paste-buffer returned non-zero — text may not have reached the pane"
+        );
+        anyhow::bail!("tmux paste-buffer returned non-zero: {:?}", paste_status);
+    }
+
+    info!(
+        pane,
+        bytes = bytes_len,
+        ms_load,
+        ms_paste,
+        ms_total,
+        "dispatched text paste"
+    );
+    Ok(())
+}
+
 fn staged_image_id_ms(img: &StagedImage) -> u64 {
     img.captured_at
         .duration_since(std::time::UNIX_EPOCH)

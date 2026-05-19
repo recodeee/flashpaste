@@ -38,6 +38,42 @@ pub fn spawn_watcher(state: Arc<SharedState>) {
         return;
     }
 
+    // Startup prestage: scan the dir for the freshest screenshot and stage
+    // it into the daemon. Without this, every daemon restart (rebuild,
+    // boot, manual `systemctl restart`) leaves the in-memory staged_image
+    // empty until the *next* screenshot fires inotify — meaning the user's
+    // first paste after restart silently punts to the bash dispatcher
+    // (~1-21 s, includes its own claude-idle-check). With this, the daemon
+    // owns the fast path immediately on startup.
+    //
+    // Bounded to files modified in the last 5 minutes so we don't stage a
+    // stale screenshot from an earlier session.
+    let state_for_prestage = state.clone();
+    let dir_for_prestage = dir.clone();
+    let handle_for_prestage = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        if let Some((path, bytes, mime)) = find_freshest_image(&dir_for_prestage, 300) {
+            let len = bytes.len();
+            let staged = StagedImage {
+                bytes: Arc::new(bytes),
+                mime,
+                path: path.clone(),
+                captured_at: SystemTime::now(),
+            };
+            handle_for_prestage.block_on(async move {
+                state_for_prestage.set_staged_image(staged).await;
+            });
+            info!(
+                path = %path.display(),
+                bytes = len,
+                mime = mime,
+                "startup prestage: staged latest screenshot"
+            );
+        } else {
+            debug!("startup prestage: no fresh screenshot in dir");
+        }
+    });
+
     // The actual blocking loop runs on a spawn_blocking thread because the
     // sync `inotify` iterator parks the OS thread on `read`. We bridge back
     // into tokio via `Handle::current().block_on(...)` for the staging
@@ -229,6 +265,35 @@ fn mime_for_string(s: &str) -> &'static str {
 /// The `.fpc.` infix marks it as a flashpaste-compressed sibling so a
 /// future cleanup pass can identify (and reap) these files without
 /// guessing.
+/// Scan `dir` for the most recently-modified PNG/JPEG, return its bytes
+/// if it was written within the last `max_age_secs` seconds. Used at
+/// startup so the daemon doesn't begin life with an empty staged_image
+/// after every restart.
+fn find_freshest_image(dir: &Path, max_age_secs: u64) -> Option<(PathBuf, Vec<u8>, &'static str)> {
+    let entries = std::fs::read_dir(dir).ok()?;
+    let mut best: Option<(SystemTime, PathBuf)> = None;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !is_image_path(&path) {
+            continue;
+        }
+        let Ok(meta) = entry.metadata() else { continue };
+        let Ok(mtime) = meta.modified() else { continue };
+        match &best {
+            Some((current, _)) if *current >= mtime => {}
+            _ => best = Some((mtime, path)),
+        }
+    }
+    let (mtime, path) = best?;
+    let age = SystemTime::now().duration_since(mtime).ok()?;
+    if age.as_secs() > max_age_secs {
+        return None;
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    let mime = mime_for(&path);
+    Some((path, bytes, mime))
+}
+
 fn make_compressed_tmp_path(original: &Path, mime: &str) -> PathBuf {
     let ext = match mime {
         "image/webp" => "webp",

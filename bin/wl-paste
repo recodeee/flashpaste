@@ -93,10 +93,30 @@ xclip_selection=$([ "$primary" = "1" ] && echo primary || echo clipboard)
 
 # Build the xclip command appropriate for this invocation; we'll use it
 # either as a wedge-cache fast-path or as the post-wl-paste fallback.
+#
+# Bug we defend against: `xclip -selection clipboard -t image/png -o` on
+# a text-only clipboard does NOT return empty — it returns the TEXT
+# bytes (xclip silently falls back to whatever's actually in the
+# selection when the requested `-t` isn't advertised). Claude Code's
+# `wl-paste -t image/png` was getting text back and reporting "no
+# image found" while pasting raw text into the chat. Defence: when a
+# MIME-shaped target is asked for, verify it appears in TARGETS first;
+# if not, exit 1 with no stdout (matching what a real wl-paste does on
+# a missing MIME).
 xclip_fallback() {
   if [ "$list_only" = "1" ]; then
     exec xclip -selection "$xclip_selection" -t TARGETS -o
   elif [ -n "$target" ]; then
+    case "$target" in
+      */*)
+        # MIME-typed target — verify it's actually advertised before
+        # asking xclip for it, else xclip lies and returns text.
+        if ! xclip -selection "$xclip_selection" -t TARGETS -o 2>/dev/null \
+            | grep -Fxq -- "$target"; then
+          exit 1
+        fi
+        ;;
+    esac
     exec xclip -selection "$xclip_selection" -t "$target" -o
   else
     exec xclip -selection "$xclip_selection" -o

@@ -26,6 +26,23 @@ Release-tag policy: every `vX.Y` commit on `main` must be tagged and have a matc
 - `assets/hero-flow-light.svg` light-mode variant
 - README badges, animated SVG hero, animated tier-comparison chart, Mermaid sequence diagram, AI-assistant TL;DR block, extended FAQ, alternatives comparison
 
+## [1.25] - 2026-05-19
+
+### Added
+
+- `rs/flashpasted/src/ipc.rs` text-vs-image intent decision in `handle_paste`. The single `latest_selection` slot still holds at most one variant (mirrors how real clipboards work), but the dispatcher now consults live X11 TARGETS too: if the daemon has a fresh staged image AND the X11 CLIPBOARD has been taken over by an external app advertising text-only targets (browser, terminal selection, IDE copy, …), the user's text is scraped, staged, and dispatched as text instead of forcing the image through. The staged image stays in memory so a subsequent paste with no text-overlay still serves it.
+- `rs/flashpasted/src/paste.rs` `dispatch_text_paste`: tmux `load-buffer` + `paste-buffer -t <pane>` text path. No clipboard claim, no kitty IPC, no unbind/rebind dance — pure tmux pty injection so the text lands in any pane regardless of which terminal hosts the tmux client. Replaces the "punt to bash" path for the text case.
+- `rs/flashpasted/src/tmux.rs` `send_ctrl_v_to_pane(pane)`: `tmux send-keys -t pane -l \x16` injects the literal Ctrl-V byte directly into the named pane's pty, bypassing kitty's "active window only" filter. Fixes the user-reported "I could paste image only into one Claude Code chat — the rest doesn't get my img."
+
+### Fixed
+
+- `bin/wl-paste` shim now refuses to lie. `xclip -selection clipboard -t image/png -o` on a text-only clipboard *silently returns the text bytes* instead of failing (xclip falls back to whatever's in the selection when the requested MIME isn't advertised). The shim was forwarding that text-as-image lie up to Claude Code, which would report "no image found" while pasting raw text into the chat. New behaviour: when a MIME-typed target is requested, the shim probes TARGETS first; if the requested mime isn't on offer, exit 1 with no stdout — matching what a healthy `wl-paste -t image/png` does on a missing MIME.
+- `rs/flashpasted/src/ipc.rs` removed the `clipboard_holds_user_text` punt-to-bash short-circuit at the top of `handle_paste`. It was firing on every tmux highlight (which auto-copies via `@clip` to xclip), forcing Claude pastes to deliver highlighted log junk instead of the user's screenshot. The new intent decision (above) handles the same case more precisely — it only honours external text when X11 is actually owned by another app, not when xclip is briefly text-typed by our own pipe.
+
+### Changed
+
+- `bin/clipboard-set.sh`, `bin/flashpaste-logs.sh`, `bin/flashpaste-screenshot-preload.sh`, `rs/flashpasted/src/{inotify_watch,wayland}.rs`: in-flight tweaks bundled with the release. Notable: clipboard-set.sh gates `wl-copy` behind `FLASHPASTE_USE_WL_COPY=1` and reaps stale `wl-broken` flags; flashpaste-logs.sh adds `--clip` / `--kitty` poller streams with the wl-paste call gated behind `--clip-wayland` to keep the dock quiet on Mutter.
+
 ## [1.24] - 2026-05-19
 
 ### Removed

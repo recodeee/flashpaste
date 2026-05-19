@@ -55,11 +55,33 @@ clog "clipboard-set" "event=env-resolved" "WAYLAND_DISPLAY='${WAYLAND_DISPLAY:-}
 # reads from in-memory bytes, exactly what the bash dispatcher's image
 # branch already relies on for screenshots.
 _sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/flashpaste.sock"
+_staged_via_daemon=0
 if [ -S "$_sock" ] && command -v flashpaste-trigger >/dev/null 2>&1; then
   clog "clipboard-set" "event=backend-chosen" "backend=flashpasted"
   if FLASHPASTE_STAGE_FROM="clipboard-set.sh" \
        flashpaste-trigger --stage-text <"$_tmp"; then
     clog "clipboard-set" "event=done" "backend=flashpasted" "rc=0"
+    _staged_via_daemon=1
+    # ── DO NOT `exit 0` here ──────────────────────────────────────────
+    # The daemon's `latest_selection` now holds the Text, which makes
+    # `staged_image()` return None and routes the NEXT paste through the
+    # bash dispatcher (text path). BUT the bash dispatcher inspects the
+    # *live* X11/Wayland clipboard with `wl-paste --list-types` to decide
+    # text-vs-image — and if the X11 selection still holds a previous
+    # screenshot's image/png bytes (very common when the user copied text
+    # right after taking a screenshot), the dispatcher sees `image/png`
+    # in TARGETS and routes as IMAGE. End result: the user's copied text
+    # never lands; the stale screenshot gets pasted instead.
+    #
+    # Fix: also write the text to xclip so the X11 selection owner is
+    # text-typed AFTER this call. The daemon's stage_text remains the
+    # fast in-memory record; xclip is what every external probe (wl-paste
+    # shim → xclip fallback) actually reads.
+    if [ -n "${DISPLAY:-}" ] && command -v xclip >/dev/null 2>&1; then
+      xclip -selection clipboard -i <"$_tmp" 2>/dev/null &
+      disown 2>/dev/null || true
+      clog "clipboard-set" "event=mirror-to-xclip" "rc=spawned"
+    fi
     exit 0
   fi
   # Daemon refused — fall through to the wl-copy / xclip / xsel chain.

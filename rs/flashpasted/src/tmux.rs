@@ -112,6 +112,30 @@ pub async fn unbind_c_v() -> Result<()> {
     Ok(())
 }
 
+/// Inject the Ctrl-V byte (0x16) directly into `pane`'s pty via
+/// `tmux send-keys -t <pane> -l <byte>`. The `-l` (literal) flag tells
+/// tmux to write the bytes as raw input rather than interpreting them
+/// via the keytable — so we DON'T need the unbind/rebind dance around
+/// `bind -n C-v`, and the byte reaches the pane regardless of which
+/// terminal emulator hosts the tmux client. This is the critical
+/// difference from `kitty @ send-text` which only reaches kitty's own
+/// client; on this box that's session 18 only, leaving every other
+/// Claude pane silently empty. (User report 2026-05-19: "I could paste
+/// only to one Claude Code chat — the rest doesn't get my img.")
+pub async fn send_ctrl_v_to_pane(pane: &str) -> Result<()> {
+    // 0x16 is Ctrl-V (SYN). We send the literal byte; Claude Code's TUI
+    // reads it from stdin and fires its `wl-paste -t image/png` handler.
+    let status = Command::new("tmux")
+        .args(["send-keys", "-t", pane, "-l", "\x16"])
+        .status()
+        .await
+        .context("spawn tmux send-keys -l ^V")?;
+    if !status.success() {
+        anyhow::bail!("tmux send-keys -l ^V returned non-zero: {:?}", status);
+    }
+    Ok(())
+}
+
 /// Schedule a `tmux bind -n C-v <command>` to fire ~`delay` from now, fully
 /// detached from this process (setsid). The bash dispatcher's v1.4 edit log
 /// explains why detach matters: a backgrounded subshell catches SIGHUP when

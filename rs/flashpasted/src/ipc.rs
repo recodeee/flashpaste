@@ -29,7 +29,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use crate::paste;
-use crate::state::{now_unix_ms, SharedState, StagedImage, StagedText};
+use crate::state::{now_unix_ms, SharedState, StagedImage, StagedSelection, StagedText};
 
 /// Recursion guard window. A `paste` op arriving within this many ms of the
 /// previous one is treated as the tmux `bind -n C-v` recursion (see fact #2
@@ -194,13 +194,155 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
     // load sees the new timestamp.
     state.last_paste_ms.store(now, Ordering::Relaxed);
 
-    // ─── Freshness check ─────────────────────────────────────────────
-    // Daemon-handled paste requires a staged IMAGE. Text on the
-    // clipboard is fine — kitty's own paste_from_clipboard handles it via
-    // the tier-1 bash path — so we punt back to bash for that case too.
-    let staged = match state.staged_image().await {
-        Some(img) if img.is_fresh() => img,
-        Some(_) => {
+    // (v1.25: removed the `clipboard_holds_user_text` short-circuit
+    // that was here. Rationale: tmux's `@clip` pipe auto-copies on
+    // every mouse-drag-end into a tmux pane — so highlighting any
+    // text in scrollback (reading a log line, selecting an error
+    // message to look at) immediately overwrote the X11 CLIPBOARD
+    // with that text. The next right-click → Paste then saw "X11
+    // holds user text" and punted to bash, which delivered the
+    // highlighted log junk instead of the user's screenshot.
+    // Confirmed in journalctl on this box: `paste: X11 CLIPBOARD
+    // now holds user text … punting to bash` fired on every Claude
+    // pane paste once any tmux pane had been highlighted.
+    //
+    // New rule: if the daemon has a fresh staged image, it always
+    // wins. The paste step re-claims X11 ownership with the staged
+    // image bytes before dispatching, so even an xclip-held text
+    // selection gets superseded. Losing the user's incidental
+    // highlight on paste is much cheaper than silently delivering
+    // log junk into Claude Code.
+    //
+    // For the "user pressed Ctrl-C in a browser and wants text"
+    // case: that's still served via the bash fallback when the
+    // daemon has NO fresh staged image — see the freshness branch
+    // below.)
+
+    // ─── Intent decision: text vs image ──────────────────────────────
+    // User contract (2026-05-19): "if last time was text pasted and no
+    // new screenshot was taken the text should be pasted to each
+    // terminal". The staged-selection slot is single-valued — set_staged_image
+    // replaces text and vice versa — so whatever's in the slot IS the
+    // most-recent staged action. We honour that:
+    //   1. Slot has fresh TEXT  → text dispatch via tmux paste-buffer
+    //   2. Slot has fresh IMAGE → image dispatch via send-keys ^V
+    //   3. Slot empty but X11 clipboard has text (user just copied
+    //      something but it hasn't been staged in daemon yet) →
+    //      read it, stage it, dispatch text
+    //   4. None of the above → punt to bash (text-path fallback)
+    let mut staged_selection = state.staged_snapshot().await;
+    if staged_selection.is_none() || !matches!(&staged_selection, Some(s) if s.is_fresh()) {
+        // No fresh staged slot — see if the user has fresh text on the
+        // X11 clipboard that we can stage and use.
+        if let Some(bytes) = read_clipboard_text_if_present().await {
+            let staged = StagedText {
+                bytes: Arc::new(bytes),
+                captured_at: std::time::SystemTime::now(),
+            };
+            info!(
+                pane,
+                bytes = staged.bytes.len(),
+                "paste: scraped fresh text from X11 clipboard and staged it"
+            );
+            state.set_staged_text(staged.clone()).await;
+            staged_selection = Some(StagedSelection::Text(staged));
+        }
+    }
+
+    match staged_selection {
+        Some(StagedSelection::Text(text)) => {
+            // ─── Text dispatch ────────────────────────────────────────
+            // tmux load-buffer + paste-buffer to the target pane. No
+            // clipboard claim, no kitty IPC, no unbind/rebind dance —
+            // pure tmux pty injection. Works across every Claude pane
+            // regardless of which terminal hosts the tmux client.
+            let bytes = text.bytes.len();
+            info!(pane, bytes, "paste: dispatching staged text via tmux paste-buffer");
+            let state_for_task = state.clone();
+            let pane_for_task = pane.to_string();
+            tokio::spawn(async move {
+                if let Err(e) = paste::dispatch_text_paste(
+                    state_for_task,
+                    pane_for_task.clone(),
+                    text,
+                )
+                .await
+                {
+                    error!(error = ?e, pane = %pane_for_task, "text paste dispatch failed");
+                }
+            });
+            return json!({
+                "ok": true,
+                "queued": true,
+                "kind": "text",
+                "bytes": bytes as u64,
+                "ack_ms": started.elapsed().as_millis() as u64,
+            });
+        }
+        Some(StagedSelection::Image(img)) if img.is_fresh() => {
+            // ── External-text override ────────────────────────────────────
+            // v1.25 made "image always wins when staged_image is fresh."
+            // That's correct EXCEPT when the user has just copied text in
+            // ANOTHER app (browser, gnome-terminal, vscode, …) — in that
+            // case the daemon's staged_image is still in memory but the
+            // live X11 CLIPBOARD has been taken over by the other app and
+            // advertises only text/* targets. Forcing image dispatch in
+            // that state means Claude's `wl-paste -t image/png` queries
+            // the external owner, gets nothing, and prints "no image
+            // found" while the user's just-copied text is right there.
+            //
+            // So: probe live X11 TARGETS. If they say "text only, no
+            // image", honour the user's recent text-copy by scraping it
+            // into the text slot and dispatching as text. Daemon's own
+            // staged_image stays in memory for the NEXT paste in case the
+            // user goes back to wanting it (taking a new screenshot will
+            // overwrite the slot anyway). This costs ~3-5 ms via xclip
+            // — acceptable for "text from elsewhere actually pastes."
+            if clipboard_holds_user_text().await {
+                if let Some(bytes) = read_clipboard_text_if_present().await {
+                    let text_staged = StagedText {
+                        bytes: Arc::new(bytes),
+                        captured_at: std::time::SystemTime::now(),
+                    };
+                    let n = text_staged.bytes.len();
+                    info!(
+                        pane,
+                        bytes = n,
+                        staged_image_bytes = img.bytes.len(),
+                        "paste: X11 CLIPBOARD now owned by external app with text — \
+                         overriding fresh staged image and dispatching the user's text"
+                    );
+                    // Don't displace the in-memory staged_image (user can
+                    // still re-screenshot to refresh intent), but DO set
+                    // staged_text so subsequent rapid pastes find it.
+                    state.set_staged_text(text_staged.clone()).await;
+                    let state_for_task = state.clone();
+                    let pane_for_task = pane.to_string();
+                    tokio::spawn(async move {
+                        if let Err(e) = paste::dispatch_text_paste(
+                            state_for_task,
+                            pane_for_task.clone(),
+                            text_staged,
+                        )
+                        .await
+                        {
+                            error!(error = ?e, pane = %pane_for_task, "text paste dispatch failed");
+                        }
+                    });
+                    return json!({
+                        "ok": true,
+                        "queued": true,
+                        "kind": "text",
+                        "bytes": n as u64,
+                        "ack_ms": started.elapsed().as_millis() as u64,
+                        "source": "x11-external-override",
+                    });
+                }
+            }
+            // No external text override → normal image dispatch.
+            return dispatch_image_path(state.clone(), pane.to_string(), img, started).await;
+        }
+        Some(StagedSelection::Image(_)) => {
             warn!(pane, "paste: staged image too old; punting to bash");
             return json!({
                 "ok": false,
@@ -208,18 +350,31 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
                 "fallback": "bash",
             });
         }
-        None => {
+        Some(StagedSelection::Text(_)) | None => {
             info!(
                 pane,
-                "paste: no staged image (clipboard empty or holds text); punting to bash"
+                "paste: no fresh staged content (no image, no text); punting to bash"
             );
             return json!({
                 "ok": false,
-                "reason": "no-image",
+                "reason": "no-content",
                 "fallback": "bash",
             });
         }
-    };
+    }
+}
+
+/// Image dispatch entry path, factored out so `handle_paste` can return
+/// from the intent-match arm without duplicating the queue-collapse +
+/// detached-spawn boilerplate below. (Kept inside this file because the
+/// `paste_in_flight` / `pending_paste` state coupling stays here.)
+async fn dispatch_image_path(
+    state: Arc<SharedState>,
+    pane: String,
+    staged: StagedImage,
+    started: Instant,
+) -> Value {
+    let pane = pane.as_str();
 
     // ─── In-flight guard ─────────────────────────────────────────────
     // While a dispatch is waiting on Claude to become idle, additional
@@ -404,6 +559,112 @@ async fn handle_stage_text(state: &Arc<SharedState>, bytes_b64: &str) -> Value {
     state.set_staged_text(staged).await;
     debug!(bytes = n, "stage_text accepted");
     json!({ "ok": true, "staged": "text", "bytes": n })
+}
+
+/// Query the X11 CLIPBOARD selection and decide whether the user has
+/// recently overlaid text on top of the daemon's staged image. When the
+/// daemon owns the selection with image bytes, `xclip TARGETS` returns
+/// just `image/*` — that's the "image is current" case. When the user
+/// copies text in any app, the X11 selection ownership transfers and
+/// the new owner advertises `text/*` (and usually no `image/*`). We use
+/// xclip because:
+///   * mutter blocks our Wayland reads (latched in `wayland.rs`),
+///   * x11rb would need its own listener thread for ICCCM TARGETS
+///     conversion, which is the kind of code we don't need to maintain
+///     when xclip already does it correctly,
+///   * the call is ~3–5 ms — acceptable for the small benefit of
+///     "user's text paste actually pastes their text".
+/// Returns true only if text targets are present AND no image targets
+/// are present — i.e. the user has affirmatively taken the selection.
+async fn clipboard_holds_user_text() -> bool {
+    let out = match tokio::process::Command::new("xclip")
+        .args(["-selection", "clipboard", "-t", "TARGETS", "-o"])
+        .output()
+        .await
+    {
+        Ok(o) => o,
+        Err(e) => {
+            debug!(error = %e, "clipboard_holds_user_text: xclip TARGETS failed; assuming daemon still owns");
+            return false;
+        }
+    };
+    if !out.status.success() {
+        // xclip returns non-zero when selection is empty; treat as "no
+        // user text" rather than punting unnecessarily.
+        return false;
+    }
+    let targets = String::from_utf8_lossy(&out.stdout);
+    let mut has_text = false;
+    let mut has_image = false;
+    for line in targets.lines() {
+        let t = line.trim();
+        if t.starts_with("image/") {
+            has_image = true;
+        } else if t.starts_with("text/")
+            || t == "STRING"
+            || t == "UTF8_STRING"
+            || t == "TEXT"
+        {
+            has_text = true;
+        }
+    }
+    has_text && !has_image
+}
+
+/// Read the text bytes currently on the X11 CLIPBOARD if (and only if)
+/// the clipboard advertises a text-only target set (no image targets).
+/// Used by `handle_paste` to scrape user-copied text into the daemon's
+/// staged-text slot so subsequent pastes can dispatch from staged state
+/// without depending on transient X11 selection ownership.
+///
+/// Returns `None` if:
+///   * xclip TARGETS fails (no X server, no selection owner, etc.)
+///   * any `image/*` target is advertised (the daemon's own image win)
+///   * no text target is advertised
+///   * xclip text read returns empty bytes
+async fn read_clipboard_text_if_present() -> Option<Vec<u8>> {
+    // First pass: TARGETS. Only proceed if it's text-only.
+    let targets_out = tokio::process::Command::new("xclip")
+        .args(["-selection", "clipboard", "-t", "TARGETS", "-o"])
+        .output()
+        .await
+        .ok()?;
+    if !targets_out.status.success() {
+        return None;
+    }
+    let targets = String::from_utf8_lossy(&targets_out.stdout);
+    let mut has_text_target: Option<&str> = None;
+    let mut has_image = false;
+    for line in targets.lines() {
+        let t = line.trim();
+        if t.starts_with("image/") {
+            has_image = true;
+            break;
+        }
+        if has_text_target.is_none() {
+            if t == "UTF8_STRING" {
+                has_text_target = Some("UTF8_STRING");
+            } else if t.starts_with("text/plain") {
+                has_text_target = Some(t.split(';').next().unwrap_or("text/plain"));
+            } else if t == "STRING" {
+                has_text_target = Some("STRING");
+            }
+        }
+    }
+    if has_image {
+        return None;
+    }
+    let target = has_text_target?;
+    // Read the actual bytes for the chosen target.
+    let read_out = tokio::process::Command::new("xclip")
+        .args(["-selection", "clipboard", "-t", target, "-o"])
+        .output()
+        .await
+        .ok()?;
+    if !read_out.status.success() || read_out.stdout.is_empty() {
+        return None;
+    }
+    Some(read_out.stdout)
 }
 
 async fn handle_stage(state: &Arc<SharedState>, image_path: &str) -> Value {

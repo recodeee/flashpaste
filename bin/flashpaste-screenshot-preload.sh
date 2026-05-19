@@ -45,15 +45,22 @@ if [ "$mtime" -le "$last_mtime" ]; then
   exit 0
 fi
 
-# Don't clobber a fresh browser text copy. xclip is X11 and DOESN'T
-# consume wl-copy --paste-once, so this probe is safe.
-xt=$(timeout 0.2 xclip -selection clipboard -t text/plain -o 2>/dev/null | head -c 8)
+# Previously skipped pre-load if X11 clipboard already held text — the
+# intent was "don't clobber a fresh browser text copy with a screenshot
+# the user took accidentally." In practice that branch is the dominant
+# failure mode for image-paste on this stack: copy something, take a
+# screenshot, press Ctrl-V, and Claude pastes the OLD TEXT instead of
+# the screenshot. The user's clear intent on PrtScr is "I want to paste
+# this screenshot." The ≤10 s file-age guard above already rules out
+# stale files being re-touched by other apps. Probe kept here only as
+# a breadcrumb in the pipeline log so debugging shows what was on the
+# clipboard right before we overwrote it.
+xt=$(timeout 0.2 xclip -selection clipboard -t text/plain -o 2>/dev/null | head -c 16)
 case "$xt" in
   $'\x89PNG'*) xt= ;;   # PNG header masquerading as text — ignore
 esac
 if [ -n "$xt" ]; then
-  clog "ss-preload" "event=skip-text-on-clipboard" "preview='$(printf '%s' "$xt" | tr '\n' ' ')'"
-  exit 0
+  clog "ss-preload" "event=overriding-text" "preview='$(printf '%s' "$xt" | tr '\n' ' ')'"
 fi
 
 case "$latest" in
