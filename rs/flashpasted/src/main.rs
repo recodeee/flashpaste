@@ -151,8 +151,8 @@ async fn run(state: Arc<SharedState>, args: Args) -> Result<()> {
 
 fn init_tracing() {
     use tracing_subscriber::{fmt, EnvFilter};
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info,flashpasted=debug"));
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,flashpasted=debug"));
     fmt()
         .with_env_filter(filter)
         .with_target(false)

@@ -97,6 +97,9 @@ Next steps:
 
   3. Test: PrtScr → right-click in any tmux pane → Paste
 
+  Overlay daemon:
+     ${CYAN}systemctl --user status flashpaste-overlayd.service${RESET}
+
   Run with FLASHPASTE_QUIET=1 to disable logging (~10ms speedup).
 
 EOF

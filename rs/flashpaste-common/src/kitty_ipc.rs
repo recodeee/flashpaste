@@ -81,8 +81,7 @@ struct Payload<'a> {
 /// (dispatcher) should fall back to spawning `kitty @` on error — same
 /// fallback the bash script implicitly has via `2>>"$LOG"`.
 pub fn send_text_focused(socket_path: &Path, bytes: &[u8]) -> Result<()> {
-    let text = std::str::from_utf8(bytes)
-        .context("send_text payload is not valid UTF-8")?;
+    let text = std::str::from_utf8(bytes).context("send_text payload is not valid UTF-8")?;
     let envelope = Envelope {
         cmd: "send_text",
         version: KITTY_VERSION,

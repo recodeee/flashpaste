@@ -13,6 +13,17 @@ The missing clipboard glue between **GNOME · kitty · tmux** and your terminal 
 
 <img src="assets/hero-animated.svg" alt="Animated diagram: a screenshot leaves the PrtScr key, travels through a glowing pipe past the mutter, kitty, and tmux layers, and lands in a Claude Code terminal as an attached image in 15 milliseconds — visualizing how FlashPaste pastes screenshots into terminal LLM agents on GNOME Wayland" width="100%">
 
+<!--
+  overlay-demo.gif slot — see "Agent-driven screen annotation" section below
+  and `docs/overlay-quickstart.md#record-the-demo-gif`. The asset lives at
+  `assets/overlay-demo.gif` (≤5 MB, 10–15 s). Uncomment the <img> tag below
+  once the file is committed; until then the placeholder keeps the README
+  free of broken images.
+-->
+<!--
+<img src="assets/overlay-demo.gif" alt="Demo GIF: user pastes a screenshot into Claude Code, Claude replies 'the bug is in this function' and a red box appears around the relevant code in the user's editor, the user clicks straight to it — driven by flashpaste-mcp's highlight_region tool and flashpaste-overlayd" width="100%">
+-->
+
 <br>
 
 <!-- Badges, grouped: project · stack · ecosystem -->
@@ -130,10 +141,10 @@ FlashPaste is **MIT** — fork it, vendor it, ship it.
 ## flashpaste-mcp — agents get a first-class API
 
 <div align="center">
-<img src="assets/mcp-flow.svg" alt="Animated sequence diagram of flashpaste-mcp: a terminal LLM agent on the left (Claude Code, Codex CLI, Aider) sends four MCP tool calls — take_screenshot, read_clipboard, copy_text, paste_to_pane — along colored lanes to the flashpaste-mcp server on the right" width="100%">
+<img src="assets/mcp-flow.svg" alt="Animated sequence diagram of flashpaste-mcp: a terminal LLM agent on the left (Claude Code, Codex CLI, Aider) sends MCP tool calls including take_screenshot, read_clipboard, copy_text, paste_to_pane, highlight_region, point_at, and clear_annotations along colored lanes to the flashpaste-mcp server on the right" width="100%">
 </div>
 
-`flashpaste-mcp` is a drop-in [Model Context Protocol](https://modelcontextprotocol.io) server. Any MCP-aware client ([Claude Code](https://www.anthropic.com/claude-code), [Codex CLI](https://github.com/openai/codex), [Aider](https://github.com/Aider-AI/aider), [Continue](https://github.com/continuedev/continue), …) picks it up automatically and gets four tools:
+`flashpaste-mcp` is a drop-in [Model Context Protocol](https://modelcontextprotocol.io) server. Any MCP-aware client ([Claude Code](https://www.anthropic.com/claude-code), [Codex CLI](https://github.com/openai/codex), [Aider](https://github.com/Aider-AI/aider), [Continue](https://github.com/continuedev/continue), ...) picks it up automatically and gets clipboard, screenshot, paste, and screen annotation tools:
 
 | Tool | What it does |
 |---|---|
@@ -141,8 +152,25 @@ FlashPaste is **MIT** — fork it, vendor it, ship it.
 | `read_clipboard` | Read the current Wayland selection (text or image) with MIME |
 | `copy_text` | Place text on the clipboard via the stable daemon owner |
 | `paste_to_pane` | Send a paste to a specific kitty/tmux pane by id, even unfocused |
+| `highlight_region` | Draw a temporary rectangle or circle highlight on the user's visible screen |
+| `point_at` | Draw a temporary pointer arrow toward a specific screen location |
+| `clear_annotations` | Clear active overlay highlights, pointers, and labels |
 
 Drop it in your client config — see [`docs/architecture.md`](docs/architecture.md#mcp).
+
+---
+
+## Agent-driven screen annotation
+
+Once the agent can *see* your screen (via `take_screenshot`), the next obvious move is to let it *point at things*. `flashpaste-overlayd` is a tiny Rust daemon that paints temporary boxes, arrows, and labels directly on your Wayland screen, driven by three MCP tools that ship in the same `flashpaste-mcp` server — `highlight_region`, `point_at`, `clear_annotations`. Claude reads your screenshot, decides "the bug is in this function," draws a red box around it, and you click straight there. Annotations are click-through by default, fade out on a TTL, and never block your input.
+
+```jsonc
+// One MCP call from the agent → red box appears on screen for 4 seconds.
+{"name": "highlight_region",
+ "arguments": {"shape": "rect", "x": 412, "y": 318, "w": 280, "h": 96, "color": "#ff3b30", "label": "the bug is in this function", "ttl_ms": 4000}}
+```
+
+Setup, the GNOME caveat, and the recording recipe live in [`docs/overlay-quickstart.md`](docs/overlay-quickstart.md).
 
 ---
 
@@ -160,7 +188,7 @@ Then wire up your dotfiles, reload, and verify:
 cat ~/.local/share/flashpaste/examples/tmux.conf.snippet  >> ~/.tmux.conf
 cat ~/.local/share/flashpaste/examples/kitty.conf.snippet >> ~/.config/kitty/kitty.conf
 tmux source-file ~/.tmux.conf      # then restart kitty
-flashpaste-doctor                  # 13 green checks = ready
+flashpaste-doctor                  # 17 core checks = ready
 ```
 
 <details>
@@ -290,7 +318,7 @@ Yes — see [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md). T
 - [`CHANGELOG.md`](CHANGELOG.md) — release history (Keep-a-Changelog).
 - [`AGENTS.md`](AGENTS.md) — contributor + AI-agent guide; release workflow lives here.
 - [`llms.txt`](llms.txt) — AI-crawler manifest ([llmstxt.org](https://llmstxt.org) standard).
-- [`flashpaste-mcp`](docs/architecture.md) — MCP server: `take_screenshot`, `read_clipboard`, `copy_text`, `paste_to_pane`.
+- [`flashpaste-mcp`](docs/architecture.md) — MCP server: `take_screenshot`, `read_clipboard`, `copy_text`, `paste_to_pane`, `highlight_region`, `point_at`, `clear_annotations`.
 
 MIT — see [LICENSE](LICENSE). Built by [@NagyVikt](https://github.com/NagyVikt).
 
@@ -313,7 +341,7 @@ If FlashPaste saved you a Wayland headache, a [GitHub star](https://github.com/N
   "@type": "SoftwareApplication",
   "name": "FlashPaste",
   "alternateName": ["flashpaste", "flash-paste"],
-  "description": "Sub-15 ms image-paste glue for terminal AI agents (Claude Code, Codex CLI, Aider, llm) on GNOME Wayland. Works around mutter's surfaceless-client clipboard refusal, kitty's map ctrl+v interception, and tmux's bind -n C-v recursion via three progressive performance tiers.",
+  "description": "Sub-15 ms image-paste glue and agent overlay for terminal AI agents (Claude Code, Codex CLI, Aider, llm) on GNOME Wayland. Works around mutter's surfaceless-client clipboard refusal, kitty's map ctrl+v interception, and tmux's bind -n C-v recursion via three progressive performance tiers, then lets MCP clients annotate the visible screen with highlight_region, point_at, and clear_annotations.",
   "url": "https://github.com/NagyVikt/flashpaste",
   "codeRepository": "https://github.com/NagyVikt/flashpaste",
   "downloadUrl": "https://github.com/NagyVikt/flashpaste/releases/latest",
@@ -323,6 +351,14 @@ If FlashPaste saved you a Wayland headache, a [GitHub star](https://github.com/N
   "license": "https://spdx.org/licenses/MIT.html",
   "programmingLanguage": ["Rust", "Bash"],
   "softwareRequirements": ["kitty", "tmux", "wl-clipboard", "xclip", "ydotool"],
+  "featureList": [
+    "Sub-15 ms screenshot paste into terminal LLM agents on GNOME Wayland",
+    "MCP server for screenshot capture, clipboard reads, text copy, and pane paste",
+    "Agent overlay for screen annotation on visible Linux UI regions",
+    "highlight_region draws temporary rectangles or circles on the user's screen",
+    "point_at draws temporary screen pointer arrows for buttons, panels, and app regions",
+    "clear_annotations removes active overlay highlights, pointers, and labels"
+  ],
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
   "author": {
     "@type": "Person",
@@ -334,6 +370,8 @@ If FlashPaste saved you a Wayland headache, a [GitHub star](https://github.com/N
     "claude code", "codex cli", "aider", "llm cli",
     "image paste linux", "screenshot paste terminal",
     "mcp server", "model context protocol",
+    "screen annotation", "agent overlay", "mcp screen pointer", "linux ai overlay",
+    "highlight_region", "point_at", "clear_annotations",
     "terminal ai", "llm agent", "wayland clipboard fix",
     "paste screenshot claude code linux",
     "ubuntu 24.04 wayland clipboard bug"
@@ -404,7 +442,7 @@ If FlashPaste saved you a Wayland headache, a [GitHub star](https://github.com/N
       "name": "Does FlashPaste include an MCP (Model Context Protocol) server?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Yes. flashpaste-mcp is a drop-in MCP server that any MCP-aware client (Claude Code, Codex CLI, Aider, Continue) picks up automatically. It exposes four tools: take_screenshot (capture via xdg-desktop-portal), read_clipboard (current Wayland selection with MIME), copy_text (place text on the clipboard via the daemon owner), and paste_to_pane (send a paste to a specific kitty or tmux pane by id, even when unfocused)."
+        "text": "Yes. flashpaste-mcp is a drop-in MCP server that any MCP-aware client (Claude Code, Codex CLI, Aider, Continue) picks up automatically. It exposes tools for take_screenshot (capture via xdg-desktop-portal), read_clipboard (current Wayland selection with MIME), copy_text (place text on the clipboard via the daemon owner), paste_to_pane (send a paste to a specific kitty or tmux pane by id, even when unfocused), and overlay screen annotation through highlight_region, point_at, and clear_annotations."
       }
     }
   ]

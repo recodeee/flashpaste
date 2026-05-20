@@ -9,7 +9,7 @@
 class Flashpaste < Formula
   desc "Sub-15ms image-paste glue for terminal AI agents on GNOME Wayland"
   homepage "https://github.com/NagyVikt/flashpaste"
-  url "https://github.com/NagyVikt/flashpaste/archive/refs/tags/v1.15.tar.gz"
+  url "https://github.com/NagyVikt/flashpaste/archive/refs/tags/v1.32.tar.gz"
   # PLACEHOLDER — replace on each release:
   #   curl -sL https://github.com/NagyVikt/flashpaste/archive/refs/tags/v<ver>.tar.gz | sha256sum
   sha256 "0000000000000000000000000000000000000000000000000000000000000000"
@@ -18,8 +18,12 @@ class Flashpaste < Formula
 
   depends_on :linux
   depends_on "rust" => :build
+  depends_on "pkg-config" => :build
 
   # Runtime deps available on linuxbrew. Wayland/X11 clipboard helpers:
+  depends_on "cairo"
+  depends_on "glib"
+  depends_on "pango"
   depends_on "wl-clipboard"
   depends_on "xclip"
   depends_on "tmux"
@@ -38,6 +42,7 @@ class Flashpaste < Formula
       system "cargo", "install", *std_cargo_args(path: "flashpaste-trigger")
       system "cargo", "install", *std_cargo_args(path: "flashpaste-shoot")
       system "cargo", "install", *std_cargo_args(path: "flashpaste-mcp")
+      system "cargo", "install", "--features", "wayland", *std_cargo_args(path: "flashpaste-overlayd")
       system "cargo", "install", *std_cargo_args(path: "flashpaste")
     end
 
@@ -83,6 +88,7 @@ class Flashpaste < Formula
         systemctl --user enable --now flashpasted.service
         systemctl --user enable --now clipboard-janitor.service
         systemctl --user enable --now flashpaste-screenshot-watcher.path
+        systemctl --user enable --now flashpaste-overlayd.service
 
       Required system packages (not on brew for Linux — use your distro):
         ydotool, ydotoold, xsel, systemd

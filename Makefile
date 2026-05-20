@@ -2,6 +2,7 @@
 #
 # Useful targets:
 #   make deb           build .deb package into dist/
+#   make rpm           build .rpm package into dist/
 #   make install       run install.sh
 #   make doctor        run environment check
 #   make uninstall     remove symlinks (best-effort)
@@ -12,11 +13,12 @@ REPO_ROOT := $(shell pwd)
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
 VERSION := $(if $(VERSION),$(VERSION),0.1.0)
 
-.PHONY: deb install doctor uninstall clean release-deb help bench bench-tier1 bench-tier3 bench-markdown
+.PHONY: deb rpm install doctor uninstall clean release-deb help bench bench-tier1 bench-tier3 bench-markdown
 
 help:
 	@echo "flashpaste — make targets:"
 	@echo "  make deb           build .deb (VERSION=$(VERSION))"
+	@echo "  make rpm           build .rpm (VERSION=$(VERSION))"
 	@echo "  make install       run install.sh (symlinks into ~/.local/bin)"
 	@echo "  make doctor        environment check"
 	@echo "  make uninstall     remove symlinks"
@@ -30,6 +32,9 @@ help:
 deb:
 	VERSION=$(VERSION) bash packaging/build-deb.sh
 
+rpm:
+	VERSION=$(VERSION) bash packaging/build-rpm.sh
+
 install:
 	bash install.sh
 
@@ -41,14 +46,14 @@ uninstall:
 	@for f in tmux-paste-dispatch.sh clipboard-set.sh clipboard-janitor.sh \
 	          get-clipboard-text.sh clip-pipeline-log.sh screenshot-to-clipboard \
 	          flashpaste-screenshot-preload.sh flashpaste-doctor.sh \
-	          flashpaste-trace.sh wl-paste; do \
+	          flashpaste-trace.sh wl-paste flashpaste-overlayd flashpaste-overlay; do \
 	  [ -L "$$HOME/.local/bin/$$f" ] && rm "$$HOME/.local/bin/$$f" && echo "  removed ~/.local/bin/$$f" || true; \
 	done
 	@for f in wl-clipboard.desktop wl-paste.desktop wl-copy.desktop; do \
 	  [ -L "$$HOME/.local/share/applications/$$f" ] && rm "$$HOME/.local/share/applications/$$f" && echo "  removed ~/.local/share/applications/$$f" || true; \
 	done
 	@[ -L "$$HOME/paste_image.sh" ] && rm "$$HOME/paste_image.sh" && echo "  removed ~/paste_image.sh" || true
-	@systemctl --user disable --now clipboard-janitor.service flashpaste-screenshot-watcher.path 2>/dev/null || true
+	@systemctl --user disable --now clipboard-janitor.service flashpaste-screenshot-watcher.path flashpaste-overlayd.service 2>/dev/null || true
 	@echo "uninstall done"
 
 clean:

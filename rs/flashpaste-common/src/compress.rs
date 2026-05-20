@@ -72,23 +72,20 @@ pub fn compress_for_attach(
 ) -> Result<(Vec<u8>, String)> {
     // Stat first; cheaper than reading the whole file if it's already
     // small.
-    let meta = fs::metadata(path)
-        .with_context(|| format!("stat({})", path.display()))?;
+    let meta = fs::metadata(path).with_context(|| format!("stat({})", path.display()))?;
     let size = meta.len() as usize;
 
     if size <= max_bytes {
         // Pass-through. Use the file's extension to pick a sensible
         // MIME — we don't sniff bytes because the caller already trusts
         // this path (it just came out of a screenshot tool).
-        let bytes = fs::read(path)
-            .with_context(|| format!("read({})", path.display()))?;
+        let bytes = fs::read(path).with_context(|| format!("read({})", path.display()))?;
         let mime = mime_for_path(path);
         return Ok((bytes, mime.to_string()));
     }
 
     // Slow path: decode → downscale → re-encode.
-    let img = image::open(path)
-        .with_context(|| format!("decode {}", path.display()))?;
+    let img = image::open(path).with_context(|| format!("decode {}", path.display()))?;
 
     let resized = downscale(&img, max_dim);
 
@@ -99,8 +96,7 @@ pub fn compress_for_attach(
                 error = %e,
                 "WebP encoder failed; falling back to JPEG quality 85"
             );
-            let bytes = encode_jpeg(&resized, 85)
-                .context("JPEG fallback encoder")?;
+            let bytes = encode_jpeg(&resized, 85).context("JPEG fallback encoder")?;
             Ok((bytes, "image/jpeg".to_string()))
         }
     }
@@ -230,7 +226,7 @@ mod tests {
             for x in 0..w {
                 buf.push((x ^ y) as u8);
                 buf.push(((x.wrapping_mul(7)) ^ y) as u8);
-                buf.push(((x ^ y.wrapping_mul(11))) as u8);
+                buf.push((x ^ y.wrapping_mul(11)) as u8);
             }
         }
         let img = image::RgbImage::from_raw(w, h, buf).expect("rgb buf shape");
@@ -240,8 +236,7 @@ mod tests {
 
         let original_size = std::fs::metadata(&tmp).unwrap().len() as usize;
         // Force the re-encode branch with a 1-byte cap.
-        let (bytes, mime) =
-            compress_for_attach(std::path::Path::new(&tmp), 1, 1024).unwrap();
+        let (bytes, mime) = compress_for_attach(std::path::Path::new(&tmp), 1, 1024).unwrap();
         assert!(
             mime == "image/webp" || mime == "image/jpeg",
             "unexpected mime {mime}"

@@ -211,10 +211,7 @@ fn percent_decode(s: &str) -> String {
     let mut i = 0;
     while i < bytes.len() {
         if bytes[i] == b'%' && i + 2 < bytes.len() {
-            if let (Some(h), Some(l)) = (
-                hex_val(bytes[i + 1]),
-                hex_val(bytes[i + 2]),
-            ) {
+            if let (Some(h), Some(l)) = (hex_val(bytes[i + 1]), hex_val(bytes[i + 2])) {
                 out.push((h << 4) | l);
                 i += 3;
                 continue;
@@ -277,8 +274,7 @@ fn copy_with_sniff(src: &Path, dst: &Path) -> Result<&'static str> {
         .write_all(&head[..n])
         .with_context(|| format!("write header to {}", dst.display()))?;
 
-    io::copy(&mut src_f, &mut dst_f)
-        .with_context(|| format!("copy body to {}", dst.display()))?;
+    io::copy(&mut src_f, &mut dst_f).with_context(|| format!("copy body to {}", dst.display()))?;
     dst_f
         .sync_all()
         .with_context(|| format!("fsync {}", dst.display()))?;
@@ -310,7 +306,12 @@ async fn try_stage_to_daemon(path: &Path, mime: &str) -> Result<()> {
 
     let stream = timeout(DAEMON_CONNECT_TIMEOUT, UnixStream::connect(&sock))
         .await
-        .map_err(|_| anyhow!("daemon connect timed out after {:?}", DAEMON_CONNECT_TIMEOUT))?
+        .map_err(|_| {
+            anyhow!(
+                "daemon connect timed out after {:?}",
+                DAEMON_CONNECT_TIMEOUT
+            )
+        })?
         .with_context(|| format!("connect to {}", sock.display()))?;
 
     let msg = StageMsg {
@@ -417,8 +418,7 @@ fn find_latest_screenshot(max_age_secs: u64) -> Result<Option<PathBuf>> {
     if !dir.is_dir() {
         return Ok(None);
     }
-    let entries = fs::read_dir(&dir)
-        .with_context(|| format!("read_dir({})", dir.display()))?;
+    let entries = fs::read_dir(&dir).with_context(|| format!("read_dir({})", dir.display()))?;
     let now = SystemTime::now();
     let mut best: Option<(SystemTime, PathBuf)> = None;
     for entry in entries.flatten() {
@@ -438,7 +438,9 @@ fn find_latest_screenshot(max_age_secs: u64) -> Result<Option<PathBuf>> {
             _ => {}
         }
     }
-    let Some((mtime, p)) = best else { return Ok(None) };
+    let Some((mtime, p)) = best else {
+        return Ok(None);
+    };
     if let Ok(age) = now.duration_since(mtime) {
         if age.as_secs() > max_age_secs {
             return Ok(None);
@@ -478,7 +480,10 @@ fn run_annotate(path: &Path) -> Result<()> {
             // Don't fail hard — user might have closed the editor without
             // saving. The file is whatever swappy left behind (usually
             // the original).
-            warn!(?status, "swappy exited non-zero; keeping current file bytes");
+            warn!(
+                ?status,
+                "swappy exited non-zero; keeping current file bytes"
+            );
         }
         return Ok(());
     }
@@ -591,8 +596,8 @@ async fn main() -> Result<()> {
 
     // 3. Stream bytes from portal temp file to output path. Sniff mime
     //    while we're at it.
-    let mime = copy_with_sniff(&portal_path, &output_path)
-        .context("copy portal output to destination")?;
+    let mime =
+        copy_with_sniff(&portal_path, &output_path).context("copy portal output to destination")?;
     let ms_write = take_phase();
     info!(dst = %output_path.display(), mime = mime, ms_write, "wrote screenshot");
 

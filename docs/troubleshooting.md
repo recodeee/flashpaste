@@ -23,7 +23,7 @@ If something's wrong with FlashPaste, walk the diagnostic flow from top to botto
 flashpaste-doctor       # or: bash ~/.local/share/flashpaste/bin/flashpaste-doctor.sh
 ```
 
-13 parallel probes for Wayland, mutter, kitty (installed + IPC socket reachable), tmux (installed + running + inside kitty), wl-clipboard, xclip, ydotool + socket, the screenshots directory, and the installed flashpaste components. Everything should be green. Anything red is your first lead.
+17 core parallel checks for Wayland, mutter, kitty (installed + IPC socket reachable), tmux (installed + running + inside kitty), wl-clipboard, xclip, ydotool + socket, the screenshots directory, installed flashpaste components, and the overlay daemon/surface/round-trip path. Everything should be green. Anything red is your first lead.
 
 ## Step 2 — Check the log files
 

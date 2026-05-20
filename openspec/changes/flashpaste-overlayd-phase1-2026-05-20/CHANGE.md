@@ -44,7 +44,7 @@ File scope: rs/Cargo.toml, rs/flashpaste-overlayd/Cargo.toml, rs/flashpaste-over
 
 Create rs/flashpaste-overlayd/src/protocol.rs. Implement #[derive(Serialize, Deserialize)] enums and structs that exactly match the JSON spec in docs/overlay-protocol.md (from Prompt 2). Use #[serde(tag="type", rename_all="snake_case")] for the message enum. Use uuid::Uuid for ids. Default values via #[serde(default)] and helper fns. Add a Color newtype that parses #rrggbb and #rrggbbaa hex strings into an (r,g,b,a) tuple of f64s in 0.0-1.0, with impl Default returning #ffae00. Add #[cfg(test)] unit tests in the same file that round-trip each message type through serde_json and verify defaults apply. Update src/main.rs to declare 'mod protocol;'. Run 'cargo test -p flashpaste-overlayd' and confirm all tests pass. See docs/flashpaste-overlayd-plan.md Prompt 4.
 
-File scope: rs/flashpaste-overlayd/src/protocol.rs, rs/flashpaste-overlayd/src/main.rs
+File scope: rs/flashpaste-overlayd/src/protocol.rs
 
 
 ## §S  delta

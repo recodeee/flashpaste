@@ -52,7 +52,10 @@ async fn run_owner(state: Arc<SharedState>) {
     let mut rx = state.stage_notifier_rx.clone();
     // Initial state: no image staged. We could try to claim an empty
     // selection but Mutter doesn't like that — wait for the first image.
-    info!(app_id = APP_ID, "Wayland clipboard owner ready (waiting for first staged image)");
+    info!(
+        app_id = APP_ID,
+        "Wayland clipboard owner ready (waiting for first staged image)"
+    );
 
     loop {
         // Block until the next staged-image revision.
@@ -69,7 +72,11 @@ async fn run_owner(state: Arc<SharedState>) {
         let (bytes_clone, mimes): (Vec<u8>, Vec<&'static str>) = match staged {
             StagedSelection::Image(img) => {
                 let bytes = (*img.bytes).clone();
-                debug!(bytes = bytes.len(), mime = img.mime, "Wayland: refreshing image selection");
+                debug!(
+                    bytes = bytes.len(),
+                    mime = img.mime,
+                    "Wayland: refreshing image selection"
+                );
                 // Always advertise the primary plus `image/png` alias.
                 let mut mimes = vec![img.mime];
                 if img.mime != "image/png" {
@@ -110,10 +117,7 @@ async fn run_owner(state: Arc<SharedState>) {
         // the executor stays responsive while the Wayland event loop runs.
         // The `wl-clipboard-rs` crate internally forks/threads its own
         // serving loop; we own the lifetime.
-        let result = tokio::task::spawn_blocking(move || {
-            install_owner(&bytes_clone, &mimes)
-        })
-        .await;
+        let result = tokio::task::spawn_blocking(move || install_owner(&bytes_clone, &mimes)).await;
 
         match result {
             Ok(Ok(())) => {

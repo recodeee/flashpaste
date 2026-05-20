@@ -28,7 +28,7 @@
 
         flashpaste = pkgs.rustPlatform.buildRustPackage {
           pname = "flashpaste";
-          version = "1.15";
+          version = "1.32";
           src = ./.;
 
           # Cargo workspace lives under rs/.
@@ -48,12 +48,14 @@
           ];
 
           buildInputs = with pkgs; [
-            # Add any native libs the Rust crates link against here.
-            # (Currently the workspace is pure-Rust; left for future expansion.)
+            glib
+            cairo
+            pango
+            libxkbcommon
           ];
 
           # Build all binaries the workspace produces.
-          cargoBuildFlags = [ "--workspace" ];
+          cargoBuildFlags = [ "--workspace" "--features" "flashpaste-overlayd/wayland" ];
 
           # Tests need a live Wayland/ydotool session — skip in the sandbox.
           doCheck = false;
@@ -82,7 +84,8 @@
             for unit in $src/../systemd/clipboard-janitor.service \
                         $src/../systemd/flashpaste-screenshot-watcher.path \
                         $src/../systemd/flashpaste-screenshot-watcher.service \
-                        $src/../systemd/flashpasted.service; do
+                        $src/../systemd/flashpasted.service \
+                        $src/../systemd/flashpaste-overlayd.service; do
               [ -f "$unit" ] || continue
               install -Dm0644 "$unit" "$out/lib/systemd/user/$(basename "$unit")"
             done
@@ -105,7 +108,7 @@
             # without polluting the global environment.
             for bin in flashpaste flashpasted flashpaste-dispatch \
                        flashpaste-trigger flashpaste-shoot flashpaste-mcp \
-                       flashpaste-doctor; do
+                       flashpaste-overlayd flashpaste-overlay flashpaste-doctor; do
               if [ -x "$out/bin/$bin" ]; then
                 wrapProgram "$out/bin/$bin" \
                   --prefix PATH : ${lib.makeBinPath runtimeDeps}

@@ -103,11 +103,7 @@ fn open_append(path: &std::path::Path) -> Option<File> {
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .ok()
+    OpenOptions::new().create(true).append(true).open(path).ok()
 }
 
 /// Emit a checkpoint. Use the [`t`](crate::t) macro for the canonical
@@ -165,7 +161,9 @@ pub fn emit_exit(rc: i32) {
     if state.quiet {
         return;
     }
-    let Some(file) = &state.trace_file else { return };
+    let Some(file) = &state.trace_file else {
+        return;
+    };
     let total_ms = Instant::now().duration_since(state.start).as_millis() as u64;
     let ts = format_iso8601_utc();
     let line = format!(

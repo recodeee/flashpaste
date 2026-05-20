@@ -96,10 +96,9 @@ fn run_watcher(
     // the PNG, closes the fd, and we get a single event with the final
     // filename. IN_CREATE would fire too early (before the bytes are flushed).
     // IN_MOVED_TO covers tools that atomic-rename a tempfile into place.
-    inotify.watches().add(
-        &dir,
-        WatchMask::CLOSE_WRITE | WatchMask::MOVED_TO,
-    )?;
+    inotify
+        .watches()
+        .add(&dir, WatchMask::CLOSE_WRITE | WatchMask::MOVED_TO)?;
     info!(
         path = %dir.display(),
         "inotify watcher started on screenshots dir"

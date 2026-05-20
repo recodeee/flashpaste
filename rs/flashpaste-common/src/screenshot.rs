@@ -21,10 +21,7 @@ use std::time::SystemTime;
 /// Newest screenshot in `dir` whose mtime is within `max_age_secs`
 /// seconds of now. Returns `None` if the dir doesn't exist, contains no
 /// matching files, or every match is too old.
-pub fn find_latest(
-    dir: &Path,
-    max_age_secs: u64,
-) -> Option<(PathBuf, u64, &'static str)> {
+pub fn find_latest(dir: &Path, max_age_secs: u64) -> Option<(PathBuf, u64, &'static str)> {
     let entries = fs::read_dir(dir).ok()?;
     let now = SystemTime::now();
     let mut best: Option<(SystemTime, PathBuf)> = None;

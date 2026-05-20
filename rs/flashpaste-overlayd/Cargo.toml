@@ -1,0 +1,44 @@
+[package]
+name = "flashpaste-overlayd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Wayland overlay daemon for flashpaste"
+
+[[bin]]
+name = "flashpaste-overlayd"
+path = "src/main.rs"
+
+[[bin]]
+name = "flashpaste-overlay"
+path = "src/bin/flashpaste-overlay.rs"
+
+[dependencies]
+smithay-client-toolkit = { version = "0.19", default-features = false, optional = true }
+wayland-protocols = { version = "0.32", optional = true }
+wayland-protocols-wlr = { version = "0.3", optional = true }
+cairo-rs = { version = "0.20", default-features = false, optional = true }
+pangocairo = { version = "0.20", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[features]
+default = ["surface"]
+surface = [
+    "dep:smithay-client-toolkit",
+    "dep:wayland-protocols",
+    "dep:wayland-protocols-wlr",
+]
+wayland = ["surface", "render"]
+render = ["dep:cairo-rs", "dep:pangocairo"]
+pango = ["dep:pangocairo"]
+visual-tests = ["wayland"]

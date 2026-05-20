@@ -11,7 +11,7 @@ FlashPaste is a clipboard glue tool for **GNOME Wayland + kitty + tmux**. Patche
 ```bash
 git clone https://github.com/NagyVikt/flashpaste.git
 cd flashpaste
-./bin/flashpaste-doctor.sh    # 13-probe pre-flight; touches nothing
+./bin/flashpaste-doctor.sh    # 17-check pre-flight; touches nothing
 ./install.sh                  # symlinks into ~/.local/bin/, drops user systemd units
 ```
 

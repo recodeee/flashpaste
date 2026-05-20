@@ -1,4 +1,6 @@
-//! tmux command helpers — unbind/select-pane/schedule-rebind.
+#![allow(dead_code)]
+
+//! tmux command helpers — select-pane, copy-mode handling, and paste dispatch.
 //!
 //! Fact #2 from the spec: tmux's `bind -n C-v` recurses when `\026` reaches
 //! tmux via kitty `send-text`. We MUST `tmux unbind -n C-v` BEFORE
@@ -16,6 +18,10 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tokio::process::Command;
+
+/// Minimum time between expensive paste-time fallbacks. Kept here with the
+/// tmux helpers because the paste hot path is dominated by tmux subprocesses.
+pub const HOT_PATH_PROBE_THROTTLE_MS: u64 = 250;
 
 /// `tmux select-pane -t <pane>` — same as the bash dispatcher's first
 /// action. Best-effort; ignore failures.
@@ -46,17 +52,28 @@ impl PaneSnapshot {
 /// practice (mode is one of a fixed enum, current_command is a basename).
 pub async fn pane_snapshot(pane: &str) -> PaneSnapshot {
     let out = Command::new("tmux")
-        .args(["display", "-t", pane, "-p", "#{pane_mode}|#{pane_current_command}"])
+        .args([
+            "display",
+            "-t",
+            pane,
+            "-p",
+            "#{pane_mode}|#{pane_current_command}",
+        ])
         .output()
         .await;
-    let Ok(out) = out else { return PaneSnapshot::default() };
+    let Ok(out) = out else {
+        return PaneSnapshot::default();
+    };
     let s = String::from_utf8_lossy(&out.stdout);
     let s = s.trim();
     let (mode, cmd) = match s.split_once('|') {
         Some((m, c)) => (m.trim().to_string(), c.trim().to_string()),
         None => (String::new(), s.to_string()),
     };
-    PaneSnapshot { mode, current_command: cmd }
+    PaneSnapshot {
+        mode,
+        current_command: cmd,
+    }
 }
 
 /// If the snapshot says copy-mode, exit it. Copy-mode swallows every byte
@@ -132,6 +149,43 @@ pub async fn send_ctrl_v_to_pane(pane: &str) -> Result<()> {
         .context("spawn tmux send-keys -l ^V")?;
     if !status.success() {
         anyhow::bail!("tmux send-keys -l ^V returned non-zero: {:?}", status);
+    }
+    Ok(())
+}
+
+/// Select the pane, leave copy-mode if needed, and write Ctrl-V to the pane
+/// in a single tmux invocation.
+///
+/// The previous daemon path forked tmux for `select-pane`, forked again to
+/// inspect pane mode, and forked a third time to send the byte. This command
+/// chain lets tmux evaluate `#{pane_in_mode}` internally and keeps the common
+/// image paste path to one tmux subprocess.
+pub async fn dispatch_ctrl_v_to_pane(pane: &str) -> Result<()> {
+    let cancel = format!("send-keys -t {pane} -X cancel");
+    let status = Command::new("tmux")
+        .args([
+            "if-shell",
+            "-F",
+            "-t",
+            pane,
+            "#{pane_in_mode}",
+            &cancel,
+            ";",
+            "select-pane",
+            "-t",
+            pane,
+            ";",
+            "send-keys",
+            "-t",
+            pane,
+            "-l",
+            "\x16",
+        ])
+        .status()
+        .await
+        .context("spawn batched tmux Ctrl-V dispatch")?;
+    if !status.success() {
+        anyhow::bail!("batched tmux Ctrl-V dispatch returned non-zero: {status:?}");
     }
     Ok(())
 }

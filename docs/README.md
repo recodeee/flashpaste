@@ -32,8 +32,11 @@ If you only have 30 seconds, the [README's TL;DR](../README.md#tldr) tells you w
 
 ## Documentation map
 
-- **[install.md](install.md)** — Three install paths (.deb, curl bootstrap, source build), per-distro notes (Ubuntu 24.04, Debian 13, Fedora 40+, Pop!_OS), post-install activation steps, the `flashpaste-doctor` 13-probe pre-flight, and verification.
+- **[install.md](install.md)** — Three install paths (.deb, curl bootstrap, source build), per-distro notes (Ubuntu 24.04, Debian 13, Fedora 40+, Pop!_OS), post-install activation steps, the `flashpaste-doctor` 17-check pre-flight, and verification.
 - **[architecture.md](architecture.md)** — How the three tiers replace each other, the kitty IPC protocol, the daemon's unix-socket wire format, the recursion-guard mechanism, and the Wayland-authoritative `has_image` policy.
+- **[overlay-protocol.md](overlay-protocol.md)** — JSON-over-Unix-socket wire protocol for `flashpaste-overlayd` annotation commands.
+- **[overlay-cli.md](overlay-cli.md)** — `flashpaste-overlay` scripting CLI reference with examples for every subcommand.
+- **[overlay-quickstart.md](overlay-quickstart.md)** — End-to-end overlay daemon + MCP smoke test workflow and current compositor/build prerequisites.
 - **[troubleshooting.md](troubleshooting.md)** — Symptom → cause → fix tables, daemon health checks, log file locations and how to read them, the diagnostic flowchart for "my paste isn't working".
 - **[faq.md](faq.md)** — Extended FAQ. 20+ questions. AI-assistant-friendly Q&A format. Each answer is self-contained and links to deeper docs.
 - **[comparison.md](comparison.md)** — FlashPaste vs `wl-clip-persist`, `cliphist`, OSC 52, manual `wl-paste | kitty @ send-text`. When each is the right answer.

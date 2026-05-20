@@ -112,16 +112,24 @@ fn main() -> ! {
         }
     };
 
-    let trigger_source = std::env::var("TMUX_PASTE_TRIGGER")
-        .unwrap_or_else(|_| "unset".to_string());
-    trigger_log("paste", &pane, "start", &format!("trigger={trigger_source}"));
+    let trigger_source =
+        std::env::var("TMUX_PASTE_TRIGGER").unwrap_or_else(|_| "unset".to_string());
+    trigger_log(
+        "paste",
+        &pane,
+        "start",
+        &format!("trigger={trigger_source}"),
+    );
 
     if args.force_fallback {
         trigger_log("paste", &pane, "exec-bash", "force-fallback");
         exec_bash_fallback(&pane);
     }
 
-    let paste_args = PasteArgs { pane: pane.clone(), op: args.op };
+    let paste_args = PasteArgs {
+        pane: pane.clone(),
+        op: args.op,
+    };
     match try_daemon(&paste_args) {
         Ok(DaemonOutcome::Handled) => {
             trigger_log("paste", &pane, "handled", "daemon");
@@ -147,6 +155,11 @@ fn main() -> ! {
 /// Suppress with `FLASHPASTE_QUIET=1`.
 fn trigger_log(op: &str, pane: &str, phase: &str, detail: &str) {
     if std::env::var_os("FLASHPASTE_QUIET").is_some() {
+        return;
+    }
+    if std::env::var_os("FLASHPASTE_TRIGGER_LOG").is_none()
+        && std::env::var_os("FLASHPASTE_TRIGGER_DEBUG").is_none()
+    {
         return;
     }
     let path = log_path();
@@ -204,8 +217,8 @@ fn try_daemon(args: &PasteArgs) -> Result<DaemonOutcome> {
     // connect_timeout doesn't exist for UnixStream in std, but the socket is
     // local and SOCK_STREAM connect on a listening unix socket completes in
     // microseconds. If it stalls, the read/write timeouts below catch it.
-    let mut stream = UnixStream::connect(&path)
-        .with_context(|| format!("connect {}", path.display()))?;
+    let mut stream =
+        UnixStream::connect(&path).with_context(|| format!("connect {}", path.display()))?;
     stream.set_write_timeout(Some(WRITE_TIMEOUT)).ok();
     stream.set_read_timeout(Some(READ_TIMEOUT)).ok();
     // Don't sit on Nagle; payloads are tiny.
@@ -276,8 +289,12 @@ fn stage_text_main() -> i32 {
         Ok(s) => s,
         Err(_) => return 13,
     };
-    stream.set_write_timeout(Some(Duration::from_millis(200))).ok();
-    stream.set_read_timeout(Some(Duration::from_millis(200))).ok();
+    stream
+        .set_write_timeout(Some(Duration::from_millis(200)))
+        .ok();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(200)))
+        .ok();
 
     let b64 = base64_encode(&buf);
     let req = json!({
@@ -313,7 +330,11 @@ fn stage_text_main() -> i32 {
         Err(_) => return 20,
     };
     let ok = resp.get("ok").and_then(Value::as_bool).unwrap_or(false);
-    if ok { 0 } else { 21 }
+    if ok {
+        0
+    } else {
+        21
+    }
 }
 
 /// Read up to `max` bytes from `r` into `out`. Returns an error if the
@@ -338,9 +359,8 @@ fn read_to_vec_bounded<R: Read>(r: &mut R, out: &mut Vec<u8>, max: usize) -> std
 /// Standard base64 encoder (no URL-safe variant). Avoids the `base64`
 /// crate so trigger stays minimal.
 fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    const CHARS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     let mut i = 0;
     while i + 3 <= data.len() {
         let n = ((data[i] as u32) << 16) | ((data[i + 1] as u32) << 8) | (data[i + 2] as u32);

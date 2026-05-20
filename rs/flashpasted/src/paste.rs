@@ -13,9 +13,7 @@
 //! caller's tmux paste menu may be on a different pane than the focused
 //! one; without selecting we'd send-text into the wrong pane.
 
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Context, Result};
 use tracing::info;
@@ -23,13 +21,6 @@ use tracing::info;
 use crate::state::{now_unix_ms, SharedState, StagedImage, StagedText};
 use crate::tmux;
 use tokio::io::AsyncWriteExt;
-
-/// How long to wait before re-binding `C-v` in tmux. The bash dispatcher
-/// settled on 100ms after observing that anything shorter races the
-/// in-flight `\026` byte (tmux still processing it when the rebind lands)
-/// and anything longer is visible to the user as "C-v doesn't paste right
-/// after a paste".
-const TMUX_REBIND_DELAY: Duration = Duration::from_millis(100);
 
 /// Top-level entry from `ipc::handle_paste`.
 ///
@@ -42,7 +33,9 @@ pub async fn dispatch_image_paste(
     staged: StagedImage,
 ) -> Result<()> {
     let payload_bytes = staged.bytes.len();
-    let payload_name = staged.path.file_name()
+    let payload_name = staged
+        .path
+        .file_name()
         .and_then(|n| n.to_str())
         .map(|s| s.trim_start_matches("Screenshot from ").to_string())
         .unwrap_or_else(|| "<no-name>".to_string());
@@ -61,16 +54,12 @@ pub async fn dispatch_image_paste(
     // screenshot, restore a 2 ms sleep here.
     let _ = state.stage_notifier_tx.send(now_unix_ms());
 
-    tmux::select_pane(&pane).await;
-    let pane_snap = tmux::pane_snapshot(&pane).await;
-    tmux::cancel_copy_mode_if_active(&pane, &pane_snap).await;
-
     // Inject Ctrl-V (0x16) into the pane's pty via `tmux send-keys -l`.
     // `-l` is literal: no keytable, no unbind/rebind dance. Reaches any
     // tmux pane regardless of which terminal hosts the client.
-    tmux::send_ctrl_v_to_pane(&pane)
+    tmux::dispatch_ctrl_v_to_pane(&pane)
         .await
-        .context("tmux send-keys -l ^V")?;
+        .context("batched tmux Ctrl-V dispatch")?;
 
     info!(
         pane,
@@ -82,10 +71,6 @@ pub async fn dispatch_image_paste(
     Ok(())
 }
 
-/// Stable per-screenshot identity used to detect "same image as last
-/// claim" in the notifier-skip path. Falls back to 0 if the SystemTime
-/// is before the Unix epoch (impossible in practice but the type forces
-/// us to handle it).
 /// Text-paste dispatch. Pipes the staged text bytes into a tmux buffer
 /// via `tmux load-buffer -` (stdin), then `tmux paste-buffer -p -t <pane>`
 /// writes the buffer bytes directly into the target pane's pty. No
@@ -114,7 +99,10 @@ pub async fn dispatch_text_paste(
         .context("spawn tmux load-buffer")?;
     {
         let mut stdin = load.stdin.take().context("load-buffer stdin not piped")?;
-        stdin.write_all(&text.bytes).await.context("write load-buffer stdin")?;
+        stdin
+            .write_all(&text.bytes)
+            .await
+            .context("write load-buffer stdin")?;
     }
     let load_status = load.wait().await.context("load-buffer wait")?;
     if !load_status.success() {
@@ -133,25 +121,4 @@ pub async fn dispatch_text_paste(
 
     info!(pane, kind = "text", bytes = bytes_len, "PASTED text");
     Ok(())
-}
-
-fn staged_image_id_ms(img: &StagedImage) -> u64 {
-    img.captured_at
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-fn xdg_runtime_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-        if !dir.is_empty() {
-            return PathBuf::from(dir);
-        }
-    }
-    let uid = nix::unistd::Uid::current().as_raw();
-    let candidate = PathBuf::from(format!("/run/user/{uid}"));
-    if candidate.is_dir() {
-        return candidate;
-    }
-    PathBuf::from("/tmp")
 }

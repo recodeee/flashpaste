@@ -7,14 +7,14 @@
 # Source: GitHub release tarball (stable).
 
 pkgname=flashpaste
-pkgver=1.15
+pkgver=1.32
 pkgrel=1
 pkgdesc="Sub-15ms image-paste glue for terminal AI agents on GNOME Wayland"
 arch=('x86_64')
 url="https://github.com/NagyVikt/flashpaste"
 license=('MIT')
-depends=('wl-clipboard' 'xclip' 'xsel' 'ydotool' 'tmux' 'kitty' 'bash' 'systemd')
-makedepends=('cargo' 'rust')
+depends=('wl-clipboard' 'xclip' 'xsel' 'ydotool' 'tmux' 'kitty' 'bash' 'systemd' 'cairo' 'glib2' 'pango')
+makedepends=('cargo' 'rust' 'pkgconf')
 optdepends=(
   'cliphist: clipboard history daemon integration'
   'inotify-tools: filesystem watcher fallback'
@@ -36,6 +36,7 @@ build() {
   export CARGO_TARGET_DIR=target
   export CARGO_NET_OFFLINE=true
   cargo build --release --frozen --manifest-path rs/Cargo.toml
+  cargo build --release --frozen --manifest-path rs/Cargo.toml -p flashpaste-overlayd --features wayland
 }
 
 check() {
@@ -49,7 +50,7 @@ package() {
   cd "$pkgname-$pkgver"
 
   # Rust binaries → /usr/bin/
-  local _bins=(flashpaste-dispatch flashpasted flashpaste-trigger flashpaste-shoot flashpaste-mcp flashpaste)
+  local _bins=(flashpaste-dispatch flashpasted flashpaste-trigger flashpaste-shoot flashpaste-mcp flashpaste-overlayd flashpaste-overlay flashpaste)
   for _bin in "${_bins[@]}"; do
     if [ -x "rs/target/release/$_bin" ]; then
       install -Dm0755 "rs/target/release/$_bin" "$pkgdir/usr/bin/$_bin"
@@ -79,6 +80,7 @@ package() {
   if [ -f systemd/flashpasted.service ]; then
     install -Dm0644 systemd/flashpasted.service                    "$pkgdir/usr/lib/systemd/user/flashpasted.service"
   fi
+  install -Dm0644 systemd/flashpaste-overlayd.service              "$pkgdir/usr/lib/systemd/user/flashpaste-overlayd.service"
 
   # Desktop entries → /usr/share/applications/
   for _desk in share/applications/*.desktop; do

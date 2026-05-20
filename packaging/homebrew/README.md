@@ -25,12 +25,12 @@ mkdir -p Formula
 cp /path/to/flashpaste/packaging/homebrew/flashpaste.rb Formula/
 
 # 3. Update sha256 in Formula/flashpaste.rb for the release:
-curl -sL https://github.com/NagyVikt/flashpaste/archive/refs/tags/v1.15.tar.gz \
+curl -sL https://github.com/NagyVikt/flashpaste/archive/refs/tags/v1.32.tar.gz \
   | sha256sum
 
 # 4. Commit + push.
 git add Formula/flashpaste.rb
-git commit -m "flashpaste 1.15"
+git commit -m "flashpaste 1.32"
 git push
 ```
 
@@ -76,6 +76,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now flashpasted.service
 systemctl --user enable --now clipboard-janitor.service
 systemctl --user enable --now flashpaste-screenshot-watcher.path
+systemctl --user enable --now flashpaste-overlayd.service
 
 # Editor + paste-image wiring:
 cat "$(brew --prefix)/share/flashpaste/examples/tmux.conf.snippet"  >> ~/.tmux.conf

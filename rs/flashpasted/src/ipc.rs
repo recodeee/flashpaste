@@ -16,6 +16,7 @@
 
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -28,7 +29,7 @@ use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 
 use crate::paste;
-use crate::state::{SharedState, StagedImage, StagedSelection, StagedText};
+use crate::state::{now_unix_ms, SharedState, StagedImage, StagedSelection, StagedText};
 
 /// Cap incoming request size. 16KB was enough when `Stage` only carried a
 /// path; `StageText` inlines the bytes (base64-encoded by the trigger) so
@@ -161,7 +162,7 @@ async fn write_response(stream: &mut UnixStream, value: &Value) -> Result<()> {
     Ok(())
 }
 
-async fn handle_paste(state: &Arc<SharedState>, pane: &str, _started: Instant) -> Value {
+async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) -> Value {
     info!(pane, "paste: request received");
 
     // ─── Eager fresh-screenshot pickup ────────────────────────────────
@@ -177,8 +178,13 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, _started: Instant) -
     // staged, read it now and stage it. The dir scan is ~1ms on a
     // typical screenshots folder; the file read is ~5-20ms for a 500KB
     // PNG. Cost is acceptable; correctness is critical.
-    if let Some(dir) = &state.config.screenshots_dir {
-        if let Some((fresh_path, fresh_mtime)) = newest_image_in(dir) {
+    if should_scan_screenshots(state) {
+        if let Some((fresh_path, fresh_mtime)) = state
+            .config
+            .screenshots_dir
+            .as_ref()
+            .and_then(|dir| newest_image_in(dir))
+        {
             let need_pickup = match state.staged_snapshot().await {
                 Some(StagedSelection::Image(img)) => fresh_mtime > img.captured_at,
                 _ => fresh_mtime
@@ -217,12 +223,21 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, _started: Instant) -
     // 2026-05-19 user request ("remove all the timing and guards").
     let mut staged = state.staged_snapshot().await;
     if !matches!(&staged, Some(s) if s.is_fresh()) {
-        if let Some(bytes) = read_clipboard_text_if_present().await {
+        let external_text = if should_probe_external_text(state) {
+            read_clipboard_text_if_present().await
+        } else {
+            None
+        };
+        if let Some(bytes) = external_text {
             let s = StagedText {
                 bytes: Arc::new(bytes),
                 captured_at: std::time::SystemTime::now(),
             };
-            info!(pane, bytes = s.bytes.len(), "paste: scraped X11 text → staged");
+            info!(
+                pane,
+                bytes = s.bytes.len(),
+                "paste: scraped X11 text → staged"
+            );
             state.set_staged_text(s.clone()).await;
             staged = Some(StagedSelection::Text(s));
         }
@@ -247,8 +262,11 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, _started: Instant) -
         // is going to take at least ~1 second of human action (move
         // mouse, drag-select, release). 3 s is generous; longer than
         // any X11 re-claim race but shorter than any deliberate workflow.
-        let age = img.captured_at.elapsed().unwrap_or(std::time::Duration::ZERO);
-        if age > std::time::Duration::from_secs(3) {
+        let age = img
+            .captured_at
+            .elapsed()
+            .unwrap_or(std::time::Duration::ZERO);
+        if age > std::time::Duration::from_secs(3) && should_probe_external_text(state) {
             if let Some(bytes) = read_clipboard_text_if_present().await {
                 let s = StagedText {
                     bytes: Arc::new(bytes),
@@ -280,7 +298,12 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, _started: Instant) -
         // the daemon. Result: every paste delivers the OLD `staged_text`
         // even though the live clipboard holds bytes the user just
         // copied. Probe live X11 — if it differs, prefer X11.
-        if let Some(bytes) = read_clipboard_text_if_present().await {
+        let external_text = if should_probe_external_text(state) {
+            read_clipboard_text_if_present().await
+        } else {
+            None
+        };
+        if let Some(bytes) = external_text {
             if bytes.as_slice() != existing.bytes.as_slice() {
                 let s = StagedText {
                     bytes: Arc::new(bytes),
@@ -306,26 +329,61 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, _started: Instant) -
                 error!(error = ?e, pane, "text paste dispatch failed");
                 return json!({ "ok": false, "reason": "dispatch-failed", "fallback": "bash" });
             }
-            json!({ "ok": true, "kind": "text", "bytes": bytes as u64 })
+            json!({
+                "ok": true,
+                "kind": "text",
+                "bytes": bytes as u64,
+                "latency_ms": started.elapsed().as_millis() as u64,
+            })
         }
         Some(StagedSelection::Image(img)) if img.is_fresh() => {
-            if let Err(e) =
-                paste::dispatch_image_paste(state.clone(), pane.to_string(), img).await
+            if let Err(e) = paste::dispatch_image_paste(state.clone(), pane.to_string(), img).await
             {
                 error!(error = ?e, pane, "image paste dispatch failed");
                 return json!({ "ok": false, "reason": "dispatch-failed", "fallback": "bash" });
             }
-            json!({ "ok": true, "kind": "image" })
+            json!({
+                "ok": true,
+                "kind": "image",
+                "latency_ms": started.elapsed().as_millis() as u64,
+            })
         }
         Some(StagedSelection::Image(_)) => {
             warn!(pane, "paste: staged image too old; punting to bash");
             json!({ "ok": false, "reason": "stale-image", "fallback": "bash" })
         }
         None => {
-            info!(pane, "paste: nothing staged and clipboard has no text; punting to bash");
+            info!(
+                pane,
+                "paste: nothing staged and clipboard has no text; punting to bash"
+            );
             json!({ "ok": false, "reason": "no-content", "fallback": "bash" })
         }
     }
+}
+
+fn should_scan_screenshots(state: &SharedState) -> bool {
+    throttle_ms(
+        &state.last_screenshot_scan_ms,
+        crate::tmux::HOT_PATH_PROBE_THROTTLE_MS,
+    )
+}
+
+fn should_probe_external_text(state: &SharedState) -> bool {
+    throttle_ms(
+        &state.last_external_text_probe_ms,
+        crate::tmux::HOT_PATH_PROBE_THROTTLE_MS,
+    )
+}
+
+fn throttle_ms(slot: &std::sync::atomic::AtomicU64, min_interval_ms: u64) -> bool {
+    let now = now_unix_ms();
+    let last = slot.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < min_interval_ms {
+        return false;
+    }
+    slot.compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+        .is_ok()
 }
 
 async fn handle_stage_text(state: &Arc<SharedState>, bytes_b64: &str) -> Value {
@@ -347,56 +405,6 @@ async fn handle_stage_text(state: &Arc<SharedState>, bytes_b64: &str) -> Value {
     state.set_staged_text(staged).await;
     debug!(bytes = n, "stage_text accepted");
     json!({ "ok": true, "staged": "text", "bytes": n })
-}
-
-/// Query the X11 CLIPBOARD selection and decide whether the user has
-/// recently overlaid text on top of the daemon's staged image. When the
-/// daemon owns the selection with image bytes, `xclip TARGETS` returns
-/// just `image/*` — that's the "image is current" case. When the user
-/// copies text in any app, the X11 selection ownership transfers and
-/// the new owner advertises `text/*` (and usually no `image/*`). We use
-/// xclip because:
-///   * mutter blocks our Wayland reads (latched in `wayland.rs`),
-///   * x11rb would need its own listener thread for ICCCM TARGETS
-///     conversion, which is the kind of code we don't need to maintain
-///     when xclip already does it correctly,
-///   * the call is ~3–5 ms — acceptable for the small benefit of
-///     "user's text paste actually pastes their text".
-/// Returns true only if text targets are present AND no image targets
-/// are present — i.e. the user has affirmatively taken the selection.
-async fn clipboard_holds_user_text() -> bool {
-    let out = match tokio::process::Command::new("xclip")
-        .args(["-selection", "clipboard", "-t", "TARGETS", "-o"])
-        .output()
-        .await
-    {
-        Ok(o) => o,
-        Err(e) => {
-            debug!(error = %e, "clipboard_holds_user_text: xclip TARGETS failed; assuming daemon still owns");
-            return false;
-        }
-    };
-    if !out.status.success() {
-        // xclip returns non-zero when selection is empty; treat as "no
-        // user text" rather than punting unnecessarily.
-        return false;
-    }
-    let targets = String::from_utf8_lossy(&out.stdout);
-    let mut has_text = false;
-    let mut has_image = false;
-    for line in targets.lines() {
-        let t = line.trim();
-        if t.starts_with("image/") {
-            has_image = true;
-        } else if t.starts_with("text/")
-            || t == "STRING"
-            || t == "UTF8_STRING"
-            || t == "TEXT"
-        {
-            has_text = true;
-        }
-    }
-    has_text && !has_image
 }
 
 /// Read the text bytes currently on the X11 CLIPBOARD if (and only if)
@@ -457,7 +465,11 @@ async fn read_clipboard_text_if_present() -> Option<Vec<u8>> {
 
 async fn handle_stage(state: &Arc<SharedState>, image_path: &str) -> Value {
     let path = std::path::PathBuf::from(image_path);
-    let mime = match path.extension().and_then(|s| s.to_str()).map(str::to_lowercase) {
+    let mime = match path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(str::to_lowercase)
+    {
         Some(ref ext) if ext == "png" => "image/png",
         Some(ref ext) if ext == "jpg" || ext == "jpeg" => "image/jpeg",
         _ => "image/png",
@@ -502,7 +514,10 @@ fn newest_image_in(dir: &std::path::Path) -> Option<(std::path::PathBuf, std::ti
     let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
     for entry in entries.flatten() {
         let p = entry.path();
-        let lower = p.extension().and_then(|s| s.to_str()).map(str::to_lowercase);
+        let lower = p
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(str::to_lowercase);
         match lower.as_deref() {
             Some("png") | Some("jpg") | Some("jpeg") => {}
             _ => continue,
@@ -527,7 +542,12 @@ fn newest_image_in(dir: &std::path::Path) -> Option<(std::path::PathBuf, std::ti
 }
 
 fn mime_for_path(p: &std::path::Path) -> &'static str {
-    match p.extension().and_then(|s| s.to_str()).map(str::to_lowercase).as_deref() {
+    match p
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(str::to_lowercase)
+        .as_deref()
+    {
         Some("jpg") | Some("jpeg") => "image/jpeg",
         _ => "image/png",
     }

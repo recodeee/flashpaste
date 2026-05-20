@@ -151,12 +151,7 @@ fn pipe_cloexec() -> io::Result<(OwnedFd, OwnedFd)> {
         return Err(io::Error::last_os_error());
     }
     // SAFETY: pipe2 just gave us two owned fds; transferring ownership.
-    unsafe {
-        Ok((
-            OwnedFd::from_raw_fd(fds[0]),
-            OwnedFd::from_raw_fd(fds[1]),
-        ))
-    }
+    unsafe { Ok((OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1]))) }
 }
 
 /// Read exactly one byte from `fd`, blocking up to `timeout`. Used as the

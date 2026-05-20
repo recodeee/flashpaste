@@ -110,6 +110,7 @@ impl KittyVersion {
 
 /// Static configuration resolved at startup.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct DaemonConfig {
     pub socket_path: PathBuf,
     pub screenshots_dir: Option<PathBuf>,
@@ -120,10 +121,7 @@ pub struct DaemonConfig {
 
 impl DaemonConfig {
     pub fn resolve(args: &Args) -> Result<Self> {
-        let socket_path = args
-            .socket
-            .clone()
-            .unwrap_or_else(default_socket_path);
+        let socket_path = args.socket.clone().unwrap_or_else(default_socket_path);
         let screenshots_dir = args
             .screenshots_dir
             .clone()
@@ -143,6 +141,7 @@ impl DaemonConfig {
 }
 
 /// Per-process shared state. Cheap to clone (everything is `Arc`).
+#[allow(dead_code)]
 pub struct SharedState {
     pub config: DaemonConfig,
     pub kitty_version: KittyVersion,
@@ -189,6 +188,13 @@ pub struct SharedState {
     /// the same screenshot twice" path and avoids the X11
     /// SetSelectionOwner storm watcher flagged.
     pub last_claim_request_image_ms: AtomicU64,
+    /// Last paste-time screenshots-dir scan. The scan is a correctness
+    /// fallback for GNOME's delayed close-write behavior, but repeated paste
+    /// presses should not all walk the directory.
+    pub last_screenshot_scan_ms: AtomicU64,
+    /// Last live X11 text probe. External clipboard checks are useful, but
+    /// repeated paste presses should not shell out to xclip every time.
+    pub last_external_text_probe_ms: AtomicU64,
 }
 
 impl SharedState {
@@ -205,12 +211,15 @@ impl SharedState {
             pending_paste: AtomicU8::new(0),
             pending_pane: std::sync::Mutex::new(None),
             last_claim_request_image_ms: AtomicU64::new(0),
+            last_screenshot_scan_ms: AtomicU64::new(0),
+            last_external_text_probe_ms: AtomicU64::new(0),
         }
     }
 
     /// Replace the staged image and notify subscribers.
     pub async fn set_staged_image(&self, image: StagedImage) {
-        self.set_staged_selection(StagedSelection::Image(image)).await;
+        self.set_staged_selection(StagedSelection::Image(image))
+            .await;
     }
 
     /// Replace the staged text and notify subscribers. v1.19+ — the path
@@ -238,6 +247,7 @@ impl SharedState {
 
     /// Image-only convenience for the paste op (which is image-specific).
     /// Returns `None` if nothing is staged OR if the staged item is text.
+    #[allow(dead_code)]
     pub async fn staged_image(&self) -> Option<StagedImage> {
         match self.staged_snapshot().await {
             Some(StagedSelection::Image(img)) => Some(img),

@@ -24,8 +24,21 @@ type clog >/dev/null 2>&1 || clog() { :; }
 
 SS_DIR="$HOME/Pictures/Screenshots"
 STATE="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/flashpaste-last-preload"
+DAEMON_SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/flashpaste.sock"
 
 [ -d "$SS_DIR" ] || exit 0
+
+# Short-circuit when the flashpasted daemon is up. It runs its own
+# inotify watch on this directory and owns both clipboard selections
+# from its already-staged in-memory copy of the image bytes — firing
+# xclip here just spawns a parallel selection owner that holds a
+# redundant copy of the screenshot forever (no `-l N`, so it never
+# exits until something else claims). With multiple screenshots per
+# minute that adds 10–40 MB of zombie xclip RSS for nothing.
+if [ -S "$DAEMON_SOCK" ]; then
+  clog "ss-preload" "event=skip-daemon-running" "sock='$DAEMON_SOCK'"
+  exit 0
+fi
 
 # Find freshest PNG/JPG written in the last minute.
 latest=$(find "$SS_DIR" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' \) -mmin -1 -printf "%T@ %p\n" 2>/dev/null | sort -nr | sed -n '1s/^[^ ]* //p')

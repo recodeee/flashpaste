@@ -14,7 +14,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-VERSION="${VERSION:-$(git -C "$REPO_DIR" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "0.1.0")}"
+VERSION="${VERSION:-$(git -C "$REPO_DIR" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//' || echo "1.32")}"
 ARCH="${ARCH:-all}"     # all = noarch (pure bash)
 STAGE="${STAGE:-$REPO_DIR/dist/staging}"
 OUT_DIR="$REPO_DIR/dist"
@@ -55,13 +55,20 @@ done
 # v1.16+: ship the Rust tier-2 / tier-3 binaries when `cargo build --release`
 # has been run. Falls back gracefully to bash-only if they don't exist.
 RS_RELEASE="$REPO_DIR/rs/target/release"
+OVERLAY_READY=0
 if [ -d "$RS_RELEASE" ]; then
-  for bin in flashpasted flashpaste-dispatch flashpaste-shoot flashpaste-trigger flashpaste-mcp flashpaste; do
+  for bin in flashpasted flashpaste-dispatch flashpaste-shoot flashpaste-trigger flashpaste-mcp flashpaste-overlayd flashpaste-overlay flashpaste; do
     if [ -x "$RS_RELEASE/$bin" ]; then
       install -m 0755 "$RS_RELEASE/$bin" "$STAGE/usr/bin/$bin"
       say "  + Rust binary: $bin ($(stat -c%s "$RS_RELEASE/$bin") bytes)"
     fi
   done
+  if [ -x "$STAGE/usr/bin/flashpaste-overlayd" ] && [ -x "$STAGE/usr/bin/flashpaste-overlay" ]; then
+    OVERLAY_READY=1
+  else
+    warn "overlay binaries missing from rs/target/release — build with:"
+    warn "  cargo build --release --manifest-path rs/Cargo.toml -p flashpaste-overlayd --features wayland"
+  fi
   # flashpasted systemd user unit
   if [ -f "$REPO_DIR/systemd/flashpasted.service" ]; then
     install -m 0644 "$REPO_DIR/systemd/flashpasted.service" "$STAGE/usr/lib/systemd/user/"
@@ -86,6 +93,11 @@ done
 install -m 0644 "$REPO_DIR/systemd/clipboard-janitor.service"               "$STAGE/usr/lib/systemd/user/"
 install -m 0644 "$REPO_DIR/systemd/flashpaste-screenshot-watcher.path"      "$STAGE/usr/lib/systemd/user/"
 install -m 0644 "$REPO_DIR/systemd/flashpaste-screenshot-watcher.service"   "$STAGE/usr/lib/systemd/user/"
+if [ "$OVERLAY_READY" -eq 1 ]; then
+  install -m 0644 "$REPO_DIR/systemd/flashpaste-overlayd.service"           "$STAGE/usr/lib/systemd/user/"
+else
+  warn "skipping flashpaste-overlayd.service in this .deb because overlay binaries were not staged"
+fi
 
 # Examples + docs.
 install -m 0644 "$REPO_DIR/examples/tmux.conf.snippet"  "$STAGE/usr/share/flashpaste/examples/"
@@ -102,7 +114,7 @@ Section: x11
 Priority: optional
 Architecture: $ARCH
 Maintainer: Viktor Nagy <webubusiness@gmail.com>
-Depends: bash (>= 5.0), wl-clipboard, xclip, xsel, tmux (>= 3.0), ydotool, ydotoold
+Depends: bash (>= 5.0), wl-clipboard, xclip, xsel, tmux (>= 3.0), ydotool, ydotoold, libcairo2, libglib2.0-0, libpango-1.0-0, libpangocairo-1.0-0, systemd
 Recommends: kitty
 Suggests: cliphist, inotify-tools
 Homepage: https://github.com/NagyVikt/flashpaste
@@ -134,6 +146,9 @@ echo
 echo "  systemctl --user daemon-reload"
 echo "  systemctl --user enable --now clipboard-janitor.service"
 echo "  systemctl --user enable --now flashpaste-screenshot-watcher.path"
+if command -v flashpaste-overlayd >/dev/null 2>&1 && [ -f /usr/lib/systemd/user/flashpaste-overlayd.service ]; then
+  echo "  systemctl --user enable --now flashpaste-overlayd.service"
+fi
 echo
 echo "  # Append the snippets to your dotfiles:"
 echo "  cat /usr/share/flashpaste/examples/tmux.conf.snippet  >> ~/.tmux.conf"
@@ -143,6 +158,29 @@ echo
 echo "Run the doctor to verify your environment:"
 echo "  flashpaste-doctor"
 echo
+
+user="${SUDO_USER:-}"
+if command -v flashpaste-overlayd >/dev/null 2>&1 && [ -f /usr/lib/systemd/user/flashpaste-overlayd.service ] && [ -n "$user" ] && [ "$user" != "root" ] && id "$user" >/dev/null 2>&1; then
+  uid="$(id -u "$user")"
+  runtime="/run/user/$uid"
+  if [ -S "$runtime/bus" ]; then
+    echo "Attempting to enable flashpaste-overlayd.service for $user..."
+    runuser -u "$user" -- env \
+      XDG_RUNTIME_DIR="$runtime" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus" \
+      systemctl --user daemon-reload >/dev/null 2>&1 || true
+    if runuser -u "$user" -- env \
+      XDG_RUNTIME_DIR="$runtime" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus" \
+      systemctl --user enable --now flashpaste-overlayd.service >/dev/null 2>&1; then
+      echo "flashpaste-overlayd.service enabled for $user."
+    else
+      echo "Could not auto-start flashpaste-overlayd.service for $user; run the command above manually."
+    fi
+    echo
+  fi
+fi
+
 exit 0
 EOF
 chmod 0755 "$STAGE/DEBIAN/postinst"
@@ -156,6 +194,9 @@ set -e
 echo
 echo "flashpaste is being removed. To clean up per-user state:"
 echo "  systemctl --user disable --now clipboard-janitor.service flashpaste-screenshot-watcher.path"
+if [ -f /usr/lib/systemd/user/flashpaste-overlayd.service ]; then
+  echo "  systemctl --user disable --now flashpaste-overlayd.service"
+fi
 echo "  rm -f ~/paste_image.sh"
 echo
 exit 0

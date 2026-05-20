@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Kitty IPC over the unix socket — wire protocol, no shell-out.
 //!
 //! Fact #1 from the spec: `kitty @ send-text` is the only transport that
@@ -76,7 +78,8 @@ pub async fn send_ctrl_v(socket: &Path, version: KittyVersion) -> Result<()> {
     });
     let json_bytes = serde_json::to_vec(&payload)?;
 
-    let mut framed = Vec::with_capacity(ENVELOPE_OPEN.len() + json_bytes.len() + ENVELOPE_CLOSE.len());
+    let mut framed =
+        Vec::with_capacity(ENVELOPE_OPEN.len() + json_bytes.len() + ENVELOPE_CLOSE.len());
     framed.extend_from_slice(ENVELOPE_OPEN);
     framed.extend_from_slice(&json_bytes);
     framed.extend_from_slice(ENVELOPE_CLOSE);
@@ -109,7 +112,9 @@ pub fn find_kitty_socket(xdg_runtime_dir: &Path) -> Option<std::path::PathBuf> {
     let entries = std::fs::read_dir(xdg_runtime_dir).ok()?;
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(name_str) = name.to_str() else { continue };
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
         if !name_str.starts_with("kitty-main-") {
             continue;
         }

@@ -19,7 +19,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y dpkg-dev lintian libwayland-dev libx11-dev libdbus-1-dev pkg-config
+          sudo apt-get install -y dpkg-dev lintian libwayland-dev libx11-dev libdbus-1-dev pkg-config libcairo2-dev libglib2.0-dev libpango1.0-dev
 
       - name: Resolve version from tag
         id: ver
@@ -45,6 +45,9 @@ jobs:
 
       - name: Build Rust workspace
         run: cargo build --release --manifest-path rs/Cargo.toml
+
+      - name: Build overlay daemon
+        run: cargo build --release --manifest-path rs/Cargo.toml -p flashpaste-overlayd --features wayland
 
       - name: Build .deb
         run: VERSION=${{ steps.ver.outputs.v }} bash packaging/build-deb.sh

@@ -1,0 +1,15 @@
+[Unit]
+Description=flashpaste overlay daemon (agent-driven screen annotations)
+Documentation=https://github.com/NagyVikt/flashpaste
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/flashpaste-overlayd
+Restart=on-failure
+RestartSec=2
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target

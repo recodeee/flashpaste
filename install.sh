@@ -56,6 +56,24 @@ fi
 ln -sf "$BIN_SRC/wl-paste" "$WLP"
 say "symlinked wl-paste shim (overrides /usr/bin/wl-paste via PATH order)"
 
+RS_BIN_SRC=""
+if [ -x "$REPO_DIR/rs/target/release/flashpaste-overlayd" ]; then
+  RS_BIN_SRC="$REPO_DIR/rs/target/release"
+elif [ -x "$REPO_DIR/rs/target/debug/flashpaste-overlayd" ]; then
+  RS_BIN_SRC="$REPO_DIR/rs/target/debug"
+fi
+
+if [ -n "$RS_BIN_SRC" ]; then
+  for bin in flashpaste-overlayd flashpaste-overlay; do
+    if [ -x "$RS_BIN_SRC/$bin" ]; then
+      ln -sf "$RS_BIN_SRC/$bin" "$BIN_DST/$bin"
+      say "symlinked $bin -> $RS_BIN_SRC/$bin"
+    fi
+  done
+else
+  warn "flashpaste-overlayd binary not found under rs/target/{release,debug}; overlay service will be installed but not started"
+fi
+
 # paste_image.sh lives at $HOME (referenced by absolute path from kitty.conf).
 ln -sf "$BIN_SRC/paste_image.sh" "$HOME/paste_image.sh"
 say "symlinked ~/paste_image.sh -> $BIN_SRC/paste_image.sh"
@@ -115,6 +133,25 @@ ExecStart=%h/.local/bin/flashpaste-screenshot-preload.sh
 EOF
 say "wrote flashpaste-screenshot-watcher.{path,service}"
 
+cat > "$SYSTEMD_DST/flashpaste-overlayd.service" <<'EOF'
+[Unit]
+Description=flashpaste overlay daemon (agent-driven screen annotations)
+Documentation=https://github.com/NagyVikt/flashpaste
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=notify
+ExecStart=%h/.local/bin/flashpaste-overlayd
+Restart=on-failure
+RestartSec=2
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=default.target
+EOF
+say "wrote flashpaste-overlayd.service"
+
 # ydotoold socket-path patch (Ubuntu 24.04 0.1.8 bug)
 if systemctl --user list-unit-files ydotoold.service >/dev/null 2>&1; then
   cat > "$SYSTEMD_DST/ydotoold.service.d/flashpaste-socket.conf" 2>/dev/null <<EOF || true
@@ -134,6 +171,15 @@ fi
 systemctl --user daemon-reload
 systemctl --user enable --now clipboard-janitor.service
 systemctl --user enable --now flashpaste-screenshot-watcher.path
+if [ -x "$BIN_DST/flashpaste-overlayd" ]; then
+  if systemctl --user enable --now flashpaste-overlayd.service; then
+    say "enabled flashpaste-overlayd"
+  else
+    warn "flashpaste-overlayd.service could not be started; run flashpaste-doctor for details"
+  fi
+else
+  warn "skipping flashpaste-overlayd.service start because $BIN_DST/flashpaste-overlayd is missing"
+fi
 say "enabled clipboard-janitor + flashpaste-screenshot-watcher"
 
 # ── config snippets ─────────────────────────────────────────────────

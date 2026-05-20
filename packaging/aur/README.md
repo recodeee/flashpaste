@@ -9,7 +9,7 @@ Two PKGBUILDs live here:
 
 Both install:
 
-- Rust binaries (`flashpaste`, `flashpasted`, `flashpaste-dispatch`, `flashpaste-trigger`, `flashpaste-shoot`, `flashpaste-mcp`) → `/usr/bin/`
+- Rust binaries (`flashpaste`, `flashpasted`, `flashpaste-dispatch`, `flashpaste-trigger`, `flashpaste-shoot`, `flashpaste-mcp`, `flashpaste-overlayd`, `flashpaste-overlay`) → `/usr/bin/`
 - Bash scripts from `bin/` → `/usr/bin/` (stripped of the `.sh` suffix to keep `$PATH` clean)
 - systemd **user** units → `/usr/lib/systemd/user/`
 - `.desktop` entries → `/usr/share/applications/`
@@ -32,6 +32,7 @@ After install, activate the per-user services (the package cannot do this for yo
 ```sh
 systemctl --user daemon-reload
 systemctl --user enable --now flashpasted.service
+systemctl --user enable --now flashpaste-overlayd.service
 systemctl --user enable --now clipboard-janitor.service
 systemctl --user enable --now flashpaste-screenshot-watcher.path
 

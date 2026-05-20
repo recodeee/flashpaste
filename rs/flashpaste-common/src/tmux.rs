@@ -52,10 +52,9 @@ pub fn unbind_ctrl_v() -> io::Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            format!("tmux unbind exited with {status}"),
-        ))
+        Err(io::Error::other(format!(
+            "tmux unbind exited with {status}"
+        )))
     }
 }
 

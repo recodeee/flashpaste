@@ -6,25 +6,23 @@ Release-tag policy: every `vX.Y` commit on `main` must be tagged and have a matc
 
 ## [Unreleased]
 
+## [1.32] - 2026-05-20
+
 ### Added
 
-- Unified `flashpaste` CLI wrapping the six binaries (`dispatch`, `trigger`, `shoot`, `doctor`, `trace`, `mcp`)
-- `flashpaste-shoot --ocr` and `--ocr-only` flags for portal screenshot capture
-- `flashpaste-shoot --annotate` for screenshot annotation
-- `flashpasted` auto-compresses staged screenshots on the inotify path
-- `flashpaste-common` image auto-compress module
-- Doctor + docs surface OCR / annotate / auto-compress to users
-- `docs/` tree (architecture, install, troubleshooting, FAQ, comparison, use-cases, glossary)
-- `llms.txt` (AI-crawler manifest per llmstxt.org)
-- `CITATION.cff`
-- Distribution packaging: AUR PKGBUILDs (stable + git), Homebrew tap formula, Nix flake
-- Project-health files: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, this `CHANGELOG.md`, issue + PR templates, `FUNDING.yml`
-- CI: shellcheck + markdownlint + link-check workflow
-- Architecture Decision Records under `docs/adr/`
-- Reproducible benchmark suite (`bin/flashpaste-bench.sh`, `make bench`)
-- `assets/og-image.svg` for social sharing
-- `assets/hero-flow-light.svg` light-mode variant
-- README badges, animated SVG hero, animated tier-comparison chart, Mermaid sequence diagram, AI-assistant TL;DR block, extended FAQ, alternatives comparison
+- `flashpaste-overlayd`, a Wayland screen-annotation daemon for agent-driven highlights, pointers, labels, and fade-out TTLs.
+- Three MCP overlay tools in `flashpaste-mcp`: `highlight_region`, `point_at`, and `clear_annotations`.
+- GNOME-compatible overlay fallback path for environments without layer-shell support.
+- Multi-monitor overlay support so annotations map to the visible output geometry instead of assuming a single screen.
+
+### Changed
+
+- `flashpaste-doctor` now runs 17 core checks, up from the previous 13, including overlay daemon, socket, compositor, and draw-path probes.
+
+### Notes
+
+- Compositor support matrix: wlroots compositors with layer-shell get the native layer-surface path; GNOME/Mutter uses the fallback path; other compositors should run `flashpaste-overlayd --probe` before relying on MCP annotations.
+- GNOME fallback caveat: annotations are still programmatic and click-through by design, but Mutter does not expose the same layer-shell semantics as wlroots, so placement and stacking should be treated as best-effort until the probe and quickstart workflow pass on the target desktop.
 
 ## [1.26] - 2026-05-19
 
@@ -172,7 +170,8 @@ Release-tag policy: every `vX.Y` commit on `main` must be tagged and have a matc
 
 Initial commit: sub-120 ms bash hot path for image-paste into GNOME Wayland TUIs.
 
-[Unreleased]: https://github.com/NagyVikt/flashpaste/compare/v1.19...HEAD
+[Unreleased]: https://github.com/NagyVikt/flashpaste/compare/v1.32...HEAD
+[1.32]: https://github.com/NagyVikt/flashpaste/compare/v1.26...v1.32
 [1.19]: https://github.com/NagyVikt/flashpaste/releases/tag/v1.19
 [1.18]: https://github.com/NagyVikt/flashpaste/releases/tag/v1.18
 [1.17]: https://github.com/NagyVikt/flashpaste/releases/tag/v1.17

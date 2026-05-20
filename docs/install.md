@@ -72,13 +72,21 @@ sudo apt install ./dist/flashpaste_*_all.deb
 
 The `make deb` target auto-includes the Rust binaries if `rs/target/release/*` already exists. Build the Rust workspace first (`cargo build --release --manifest-path rs/Cargo.toml`) to get a `.deb` with Tier 2 and Tier 3 bundled.
 
+To include the agent overlay daemon and `flashpaste-overlay` client in a local `.deb`, install the Cairo/Pango/GLib development headers and build the overlay package with the Wayland renderer before `make deb`:
+
+```bash
+sudo apt install pkg-config libcairo2-dev libglib2.0-dev libpango1.0-dev
+cargo build --release --manifest-path rs/Cargo.toml -p flashpaste-overlayd --features wayland
+make deb
+```
+
 ## Option B — One-line dotfile install (no apt, no root)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NagyVikt/flashpaste/main/bootstrap.sh | bash
 ```
 
-The bootstrap script clones to `$FLASHPASTE_DIR` (default `~/.local/share/flashpaste`), runs `flashpaste-doctor` for a 13-probe pre-flight, then `install.sh` to symlink scripts into `~/.local/bin/` and drop systemd user units. No root required; nothing under `/etc/` or `/usr/` is touched.
+The bootstrap script clones to `$FLASHPASTE_DIR` (default `~/.local/share/flashpaste`), runs `flashpaste-doctor` for a 17-check pre-flight, then `install.sh` to symlink scripts into `~/.local/bin/` and drop systemd user units. No root required; nothing under `/etc/` or `/usr/` is touched.
 
 Override the install location:
 
@@ -137,7 +145,7 @@ systemctl --user restart ydotoold.service
 ## Verify the install
 
 ```bash
-flashpaste-doctor       # 13 parallel environment probes — all should be green
+flashpaste-doctor       # 17 core environment checks — all should be green
 ```
 
 Smoke test:

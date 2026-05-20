@@ -54,7 +54,7 @@ Any of `tmux-paste-dispatch.sh` (Tier 1), `flashpaste-dispatch` (Tier 2), or the
 
 ## Doctor
 
-`flashpaste-doctor` — a 13-probe pre-flight that verifies Wayland, mutter, kitty (installed + IPC), tmux (installed + running + inside kitty), wl-clipboard, xclip, ydotool + socket, the screenshots directory, and the installed FlashPaste components. Runs in parallel; takes ~1 second.
+`flashpaste-doctor` — a 17-check pre-flight that verifies Wayland, mutter, kitty (installed + IPC), tmux (installed + running + inside kitty), wl-clipboard, xclip, ydotool + socket, the screenshots directory, installed FlashPaste components, and the overlay daemon/surface/round-trip path. Runs in parallel; takes ~1 second.
 
 ## Fast capture
 

@@ -71,7 +71,7 @@ enum Cmd {
     #[command(subcommand)]
     Daemon(DaemonCmd),
 
-    /// Run the 13-probe environment doctor (wraps `flashpaste-doctor`).
+    /// Run the 17-check environment doctor (wraps `flashpaste-doctor`).
     Doctor(DoctorArgs),
 
     /// Start the flashpaste MCP server on stdio (wraps `flashpaste-mcp`).

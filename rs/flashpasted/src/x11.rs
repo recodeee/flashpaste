@@ -26,8 +26,8 @@ use anyhow::{Context, Result};
 use tracing::{debug, error, info, warn};
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode,
-    SelectionNotifyEvent, SelectionRequestEvent, WindowClass, SELECTION_NOTIFY_EVENT,
+    AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, SelectionNotifyEvent,
+    SelectionRequestEvent, WindowClass, SELECTION_NOTIFY_EVENT,
 };
 use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
@@ -62,10 +62,7 @@ struct Atoms {
 
 impl Atoms {
     fn intern(conn: &RustConnection) -> Result<Self> {
-        let clipboard = conn
-            .intern_atom(false, b"CLIPBOARD")?
-            .reply()?
-            .atom;
+        let clipboard = conn.intern_atom(false, b"CLIPBOARD")?.reply()?.atom;
         let targets = conn.intern_atom(false, b"TARGETS")?.reply()?.atom;
         let timestamp = conn.intern_atom(false, b"TIMESTAMP")?.reply()?.atom;
         let image_png = conn.intern_atom(false, b"image/png")?.reply()?.atom;
@@ -146,7 +143,7 @@ fn run(state: Arc<SharedState>) -> Result<()> {
     // SelectionRequest. The async owner refreshes via SetSelectionOwner +
     // a synchronous `staged_snapshot_blocking()` read inside the handler.
     let mut current_revision: u64 = 0;
-    let mut rx = state.stage_notifier_rx.clone();
+    let rx = state.stage_notifier_rx.clone();
 
     loop {
         // Poll for X events, then check for staging revisions.
@@ -173,11 +170,9 @@ fn run(state: Arc<SharedState>) -> Result<()> {
                         // CurrentTime (0) sentinel is acceptable here since
                         // we have no recent X timestamp; XWayland mirrors
                         // it through to Mutter regardless.
-                        if let Err(e) = conn.set_selection_owner(
-                            window,
-                            atoms.clipboard,
-                            x11rb::CURRENT_TIME,
-                        ) {
+                        if let Err(e) =
+                            conn.set_selection_owner(window, atoms.clipboard, x11rb::CURRENT_TIME)
+                        {
                             warn!(error = %e, "set_selection_owner failed");
                         }
                         let _ = conn.flush();
@@ -249,8 +244,16 @@ fn handle_selection_request(
         return Ok(());
     };
 
-    let served = serve_target(conn, window, atoms, &staged, req.requestor, property, req.target)
-        .with_context(|| format!("serve target atom={}", req.target))?;
+    let served = serve_target(
+        conn,
+        window,
+        atoms,
+        &staged,
+        req.requestor,
+        property,
+        req.target,
+    )
+    .with_context(|| format!("serve target atom={}", req.target))?;
     if served {
         notify.property = property;
     }
@@ -338,9 +341,9 @@ fn serve_target(
         if reply.format != 32 {
             return Ok(false);
         }
-        let atoms_payload = reply.value32().ok_or_else(|| {
-            anyhow::anyhow!("MULTIPLE property had wrong format")
-        })?;
+        let atoms_payload = reply
+            .value32()
+            .ok_or_else(|| anyhow::anyhow!("MULTIPLE property had wrong format"))?;
         let pairs: Vec<u32> = atoms_payload.collect();
         let mut any_ok = false;
         for chunk in pairs.chunks(2) {
@@ -349,8 +352,16 @@ fn serve_target(
             }
             let sub_target = chunk[0];
             let sub_property = chunk[1];
-            let ok = serve_target(conn, _window, atoms, staged, requestor, sub_property, sub_target)
-                .unwrap_or(false);
+            let ok = serve_target(
+                conn,
+                _window,
+                atoms,
+                staged,
+                requestor,
+                sub_property,
+                sub_target,
+            )
+            .unwrap_or(false);
             any_ok = any_ok || ok;
         }
         return Ok(any_ok);

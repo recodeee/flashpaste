@@ -49,7 +49,9 @@ pub fn kitty_socket() -> Option<PathBuf> {
     let entries = fs::read_dir(&dir).ok()?;
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let Some(name_str) = name.to_str() else { continue };
+        let Some(name_str) = name.to_str() else {
+            continue;
+        };
         if !name_str.starts_with("kitty-main-") {
             continue;
         }

@@ -20,8 +20,8 @@ use anyhow::{Context, Result};
 use x11rb::atom_manager;
 use x11rb::connection::Connection;
 use x11rb::protocol::xproto::{
-    Atom, AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode,
-    SelectionNotifyEvent, SelectionRequestEvent, WindowClass, SELECTION_NOTIFY_EVENT,
+    Atom, AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, SelectionNotifyEvent,
+    SelectionRequestEvent, WindowClass, SELECTION_NOTIFY_EVENT,
 };
 use x11rb::protocol::Event;
 use x11rb::wrapper::ConnectionExt as _;
@@ -60,8 +60,8 @@ pub fn run(path: &Path, mime: &str, ready_fd: Option<i32>) -> Result<()> {
     // Load the file bytes up front. If the read fails we still signal
     // readiness so the parent doesn't hang — it will fall back when the
     // X server reports no data later.
-    let data = fs::read(path)
-        .with_context(|| format!("reading staged image at {}", path.display()))?;
+    let data =
+        fs::read(path).with_context(|| format!("reading staged image at {}", path.display()))?;
 
     let (conn, screen_num) = x11rb::connect(None).context("connecting to X server")?;
     let atoms = Atoms::new(&conn)?.reply()?;
@@ -235,13 +235,7 @@ fn serve_request(
         // images under ~1MB this works fine on every X server. INCR
         // would handle larger payloads but typical screenshots are
         // 100-500KB.
-        conn.change_property8(
-            PropMode::REPLACE,
-            req.requestor,
-            property,
-            mime_atom,
-            data,
-        )?;
+        conn.change_property8(PropMode::REPLACE, req.requestor, property, mime_atom, data)?;
         success = true;
     } else {
         // Unsupported target — respond with property = None.
@@ -262,7 +256,7 @@ fn serve_request(
         target: req.target,
         property,
     };
-    conn.send_event(false, req.requestor, EventMask::NO_EVENT, &notify)?;
+    conn.send_event(false, req.requestor, EventMask::NO_EVENT, notify)?;
     conn.flush()?;
     Ok(())
 }
