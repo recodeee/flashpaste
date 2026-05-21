@@ -126,7 +126,7 @@ bash -n bin/*.sh install.sh bootstrap.sh
 
 # Rust workspace
 cargo build --release --manifest-path rs/Cargo.toml
-cargo fmt --manifest-path rs/Cargo.toml --check
+cargo fmt --manifest-path rs/Cargo.toml --all --check
 cargo clippy --release --manifest-path rs/Cargo.toml -- -D warnings
 
 # Doctor

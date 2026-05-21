@@ -19,7 +19,7 @@ See AGENTS.md for the full contributor + release workflow.
 
 - [ ] Bash syntax + shellcheck pass through the `Lint` workflow
 - [ ] `cargo build --release --locked --manifest-path rs/Cargo.toml` passes (if any Rust changed)
-- [ ] `cargo fmt --manifest-path rs/Cargo.toml --check` passes (if any Rust changed)
+- [ ] `cargo fmt --manifest-path rs/Cargo.toml --all --check` passes (if any Rust changed)
 - [ ] `cargo clippy --release --locked --manifest-path rs/Cargo.toml -- -D warnings` passes (if any Rust changed)
 - [ ] `flashpaste-doctor` runs clean against the changes
 - [ ] If this is a `vX.Y` bump: tag pushed in the same turn (see [AGENTS.md](../AGENTS.md))

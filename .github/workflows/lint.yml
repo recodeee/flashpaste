@@ -94,7 +94,7 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: cargo fmt
-        run: cargo fmt --manifest-path rs/Cargo.toml --check
+        run: cargo fmt --manifest-path rs/Cargo.toml --all --check
 
       - name: cargo clippy
         run: cargo clippy --release --locked --manifest-path rs/Cargo.toml -- -D warnings
