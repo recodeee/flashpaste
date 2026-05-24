@@ -16,6 +16,7 @@
 //!    The inotify watcher in `inotify_watch.rs` notices `IN_CLOSE_WRITE`
 //!    and auto-stages the bytes into both clipboard owners.
 
+mod agent;
 mod inotify_watch;
 mod ipc;
 mod kitty;

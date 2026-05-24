@@ -60,7 +60,7 @@ Target: solve adjacent paper cuts users hit once basic paste is solid.
 - [ ] **Image preview in tmux status** — when a fresh screenshot is preloaded, briefly show a tiny indicator in tmux's status-right (`📎 1.2MB ready`). Catches the user's eye so they know the paste is hot.
 - [ ] **OCR mode** — `flashpaste ocr` extracts text from the latest screenshot via `tesseract` and pastes both image AND text. Useful when Claude needs to discuss UI labels exactly.
 - [ ] **Drag-and-drop file → auto-attach** — listen for kitty's file-drop OSC sequence and run the auto-attach flow on the dropped file path.
-- [ ] **Support for Aider, Codex CLI, other TUI agents** — currently flow assumes Claude Code's paste protocol. Make the "what triggers image attach in the TUI" pluggable.
+- [x] **Support for Aider, Codex CLI, other TUI agents** — the daemon now has an agent detector. Claude Code / Codex stay on the raw Ctrl-V image-paste path; Aider uses its documented `/add <image-path>` chat command against the staged file. Future agents can add another delivery branch without disturbing the Claude/Codex transport.
 - [ ] **Multi-monitor screenshot dirs** — some setups save to per-monitor dirs; allow `screenshots_dirs = [..., ...]` in the config.
 
 ## Phase 4 — Distribution & community

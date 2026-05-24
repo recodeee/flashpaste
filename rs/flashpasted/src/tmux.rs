@@ -37,6 +37,7 @@ pub async fn select_pane(pane: &str) {
 /// for `#{pane_mode}` and `#{pane_current_command}`).
 #[derive(Debug, Clone, Default)]
 pub struct PaneSnapshot {
+    pub pane_pid: Option<u32>,
     pub mode: String,
     pub current_command: String,
 }
@@ -47,9 +48,10 @@ impl PaneSnapshot {
     }
 }
 
-/// One-shot tmux call that grabs `pane_mode` + `pane_current_command`. The
-/// `|` separator is safe — neither field can contain a literal `|` in
-/// practice (mode is one of a fixed enum, current_command is a basename).
+/// One-shot tmux call that grabs `pane_pid`, `pane_mode`, and
+/// `pane_current_command`. The `|` separator is safe — neither mode nor
+/// current_command can contain a literal `|` in practice (mode is one of a
+/// fixed enum, current_command is a basename).
 pub async fn pane_snapshot(pane: &str) -> PaneSnapshot {
     let out = Command::new("tmux")
         .args([
@@ -57,7 +59,7 @@ pub async fn pane_snapshot(pane: &str) -> PaneSnapshot {
             "-t",
             pane,
             "-p",
-            "#{pane_mode}|#{pane_current_command}",
+            "#{pane_pid}|#{pane_mode}|#{pane_current_command}",
         ])
         .output()
         .await;
@@ -66,11 +68,12 @@ pub async fn pane_snapshot(pane: &str) -> PaneSnapshot {
     };
     let s = String::from_utf8_lossy(&out.stdout);
     let s = s.trim();
-    let (mode, cmd) = match s.split_once('|') {
-        Some((m, c)) => (m.trim().to_string(), c.trim().to_string()),
-        None => (String::new(), s.to_string()),
-    };
+    let mut parts = s.splitn(3, '|');
+    let pane_pid = parts.next().and_then(|p| p.trim().parse().ok());
+    let mode = parts.next().unwrap_or("").trim().to_string();
+    let cmd = parts.next().unwrap_or(s).trim().to_string();
     PaneSnapshot {
+        pane_pid,
         mode,
         current_command: cmd,
     }
@@ -149,6 +152,30 @@ pub async fn send_ctrl_v_to_pane(pane: &str) -> Result<()> {
         .context("spawn tmux send-keys -l ^V")?;
     if !status.success() {
         anyhow::bail!("tmux send-keys -l ^V returned non-zero: {:?}", status);
+    }
+    Ok(())
+}
+
+/// Send literal text to a pane and press Enter.
+pub async fn send_literal_then_enter(pane: &str, text: &str) -> Result<()> {
+    let status = Command::new("tmux")
+        .args([
+            "send-keys",
+            "-t",
+            pane,
+            "-l",
+            text,
+            ";",
+            "send-keys",
+            "-t",
+            pane,
+            "Enter",
+        ])
+        .status()
+        .await
+        .context("spawn tmux send literal then Enter")?;
+    if !status.success() {
+        anyhow::bail!("tmux send literal then Enter returned non-zero: {status:?}");
     }
     Ok(())
 }

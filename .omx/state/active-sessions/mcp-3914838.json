@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "repoRoot": "/home/deadpool/Documents/flashpaste",
+  "branch": "main",
+  "taskName": "Session start: mcp-connect",
+  "latestTaskPreview": "Session start: mcp-connect",
+  "agentName": "unknown",
+  "cliName": "unknown",
+  "worktreePath": "/home/deadpool/Documents/flashpaste",
+  "taskMode": "",
+  "openspecTier": "",
+  "taskRoutingReason": "colony hook cwd binding",
+  "startedAt": "2026-05-19T22:21:59.379Z",
+  "lastHeartbeatAt": "2026-05-19T22:21:59.379Z",
+  "state": "working",
+  "sessionKey": "mcp-3914838"
+}

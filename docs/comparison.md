@@ -72,7 +72,7 @@ This is the obvious first attempt, and it works partially. The two failure modes
 1. `wl-paste` returns 0 bytes when called from a surfaceless tmux pane on mutter.
 2. Even when `wl-paste` returns bytes, the inner TUI doesn't always recognize the byte stream as an image-paste event.
 
-FlashPaste solves both by going through xclip + a fresh-file pre-stage, and by injecting `\026` (raw Ctrl-V) which Claude Code, Codex, and Aider all recognize as the image-paste sentinel.
+FlashPaste solves both by going through xclip + a fresh-file pre-stage. Claude Code and Codex receive `\026` (raw Ctrl-V) as the image-paste sentinel; Aider is routed through a daemon adapter that sends `/add <staged-image-path>`.
 
 ### Browser-based clipboard tools
 

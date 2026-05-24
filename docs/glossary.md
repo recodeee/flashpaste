@@ -170,4 +170,4 @@ A Wayland-native input-synthesis tool (think `xdotool` but for Wayland). FlashPa
 
 ## `\026`
 
-The ASCII code for Ctrl-V (octal 026, decimal 22, hex 16). The raw byte FlashPaste sends via `kitty @ send-text` to trigger image-paste in Claude Code, Codex CLI, and Aider.
+The ASCII code for Ctrl-V (octal 026, decimal 22, hex 16). The raw byte FlashPaste sends to trigger image-paste in Claude Code and Codex CLI. Agents with a different attach protocol, such as Aider, use an adapter instead.

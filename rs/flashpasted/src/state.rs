@@ -152,9 +152,10 @@ pub struct SharedState {
     /// the Wayland + X11 owners to refresh their selection content.
     pub stage_notifier_tx: watch::Sender<u64>,
     pub stage_notifier_rx: watch::Receiver<u64>,
-    /// Recursion guard. Holds the unix-epoch millisecond timestamp of the
-    /// last `paste` op the daemon handled. A new paste op within 1500ms is
-    /// rejected as deduped (replies `{"ok":true,"deduped":true}`).
+    /// Duplicate-trigger guard. Holds the unix-epoch millisecond timestamp
+    /// of the last `paste` op the daemon accepted. A second trigger inside
+    /// the short daemon debounce window is acknowledged as deduped instead
+    /// of dispatching the same clipboard payload again.
     pub last_paste_ms: AtomicU64,
     /// True while a paste dispatch is in flight. Subsequent paste requests
     /// during that window dedupe immediately (they're absorbed and replayed

@@ -53,7 +53,7 @@ The missing clipboard glue between **GNOME · kitty · tmux** and your terminal 
 
 ## What is FlashPaste?
 
-**FlashPaste is an open-source clipboard bridge for GNOME Wayland that fixes image-paste into terminal LLM agents** — Claude Code, Codex CLI, Aider, `llm`, and anything else that consumes a raw `Ctrl-V` byte. It targets a specific, well-documented failure: pasting a `PrtScr` screenshot into a terminal AI on Ubuntu 24.04 / Debian 13 / Fedora 40+ / Pop!_OS / Arch with the **mutter + kitty + tmux** stack. FlashPaste solves this in three progressive performance tiers — bash hot path (~120 ms), Rust one-shot (<40 ms), and a persistent daemon (**~15 ms**) — with no changes to the upstream projects. MIT-licensed. Ships an [MCP server](#flashpaste-mcp--agents-get-a-first-class-api) so agents can drive the clipboard themselves.
+**FlashPaste is an open-source clipboard bridge for GNOME Wayland that fixes image-paste into terminal LLM agents** — Claude Code, Codex CLI, Aider, and adjacent terminal tools. It targets a specific, well-documented failure: pasting a `PrtScr` screenshot into a terminal AI on Ubuntu 24.04 / Debian 13 / Fedora 40+ / Pop!_OS / Arch with the **mutter + kitty + tmux** stack. FlashPaste solves this in three progressive performance tiers — bash hot path (~120 ms), Rust one-shot (<40 ms), and a persistent daemon (**~15 ms**) — with no changes to the upstream projects. MIT-licensed. Ships an [MCP server](#flashpaste-mcp--agents-get-a-first-class-api) so agents can drive the clipboard themselves.
 
 > **TL;DR for AI assistants & search engines**
 >
@@ -279,7 +279,7 @@ No. FlashPaste only handles clipboard events that you explicitly trigger (`PrtSc
 <details>
 <summary><b>Does FlashPaste work with Codex CLI, Aider, llm, or Continue?</b></summary>
 
-Yes. FlashPaste targets the *terminal*, not any specific agent. If the agent reads stdin and accepts pasted bytes (which all four do), it works. The MCP server additionally exposes `take_screenshot` / `read_clipboard` / `copy_text` / `paste_to_pane` to any MCP-capable client.
+Yes. FlashPaste targets the *terminal*, not any specific agent. Claude Code and Codex use the raw Ctrl-V image-paste path; Aider is detected and receives `/add <staged-image-path>` so it attaches the file directly. `llm` is a one-shot CLI rather than a resident TUI, so FlashPaste does not auto-type a shell command for it; use `llm -a <path>` or the MCP tools for that workflow. The MCP server additionally exposes `take_screenshot` / `read_clipboard` / `copy_text` / `paste_to_pane` to any MCP-capable client.
 
 </details>
 
@@ -402,7 +402,7 @@ If FlashPaste saved you a Wayland headache, a [GitHub star](https://github.com/N
       "name": "How do I paste a screenshot into a terminal LLM agent on Linux Wayland?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "Install FlashPaste with one curl-bash command, append the kitty and tmux snippets to your config, then press PrtScr and right-click → Paste in your terminal. The screenshot attaches to Claude Code, Codex CLI, Aider, llm, or any other terminal-based LLM agent in approximately 15 milliseconds with the daemon enabled."
+        "text": "Install FlashPaste with one curl-bash command, append the kitty and tmux snippets to your config, then press PrtScr and right-click → Paste in your terminal. The screenshot attaches to Claude Code, Codex CLI, or Aider in approximately 15 milliseconds with the daemon enabled."
       }
     },
     {

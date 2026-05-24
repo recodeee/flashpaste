@@ -33,7 +33,7 @@ The bash hot path and the Rust dispatcher work anywhere with kitty + tmux + a Wa
 
 ### Q. Which terminal AI agents are supported?
 
-Verified with **Claude Code**, **Codex CLI**, and **Aider**. Anything that consumes a raw Ctrl-V byte from the pty and treats it as an image-paste sentinel works. If your TUI uses a different protocol (e.g. OSC 52 image transfer), open an issue.
+Supported paths are **Claude Code**, **Codex CLI**, and **Aider**. Claude Code and Codex use the raw Ctrl-V image-paste path; Aider is handled through an adapter that sends `/add <staged-image-path>` to the chat. If your TUI uses a different protocol, open an issue with the command it expects.
 
 ### Q. Do I need kitty? Can I use Alacritty or foot?
 

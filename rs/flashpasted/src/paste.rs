@@ -18,6 +18,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use tracing::info;
 
+use crate::agent::{self, AgentKind};
 use crate::state::{now_unix_ms, SharedState, StagedImage, StagedText};
 use crate::tmux;
 use tokio::io::AsyncWriteExt;
@@ -54,6 +55,24 @@ pub async fn dispatch_image_paste(
     // screenshot, restore a 2 ms sleep here.
     let _ = state.stage_notifier_tx.send(now_unix_ms());
 
+    let snap = tmux::pane_snapshot(&pane).await;
+    let agent = agent::detect(&pane, &snap).await;
+    if agent == AgentKind::Aider {
+        let image_path = agent::deliver_aider_image(&pane, &staged)
+            .await
+            .context("aider image delivery")?;
+        info!(
+            pane,
+            kind = "image",
+            agent = agent.as_str(),
+            payload_bytes,
+            payload_name = %payload_name,
+            path = %image_path.display(),
+            "PASTED image via agent adapter"
+        );
+        return Ok(());
+    }
+
     // Inject Ctrl-V (0x16) into the pane's pty via `tmux send-keys -l`.
     // `-l` is literal: no keytable, no unbind/rebind dance. Reaches any
     // tmux pane regardless of which terminal hosts the client.
@@ -64,6 +83,7 @@ pub async fn dispatch_image_paste(
     info!(
         pane,
         kind = "image",
+        agent = agent.as_str(),
         payload_bytes,
         payload_name = %payload_name,
         "PASTED image"

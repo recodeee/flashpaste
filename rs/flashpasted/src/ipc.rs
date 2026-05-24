@@ -14,11 +14,12 @@
 //!   {"ok":true,"deduped":true}
 //!   {"ok":false,"reason":"no-image","fallback":"bash"}
 
+use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -36,6 +37,7 @@ use crate::state::{now_unix_ms, SharedState, StagedImage, StagedSelection, Stage
 /// we widen to 8MB — covers a 6MB clipboard payload comfortably. Anything
 /// larger should hit the daemon via a path field, not inline.
 const MAX_REQUEST_BYTES: u32 = 8 * 1024 * 1024;
+const PASTE_DEDUP_WINDOW_MS: u64 = 350;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
@@ -187,13 +189,26 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
         {
             let need_pickup = match state.staged_snapshot().await {
                 Some(StagedSelection::Image(img)) => fresh_mtime > img.captured_at,
+                Some(StagedSelection::Text(txt)) => fresh_mtime > txt.captured_at,
                 _ => fresh_mtime
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() > now_unix_secs().saturating_sub(60))
                     .unwrap_or(false),
             };
             if need_pickup {
-                if let Ok(bytes) = std::fs::read(&fresh_path) {
+                if let Some(text) = read_wayland_text_if_present().await {
+                    let s = StagedText {
+                        bytes: Arc::new(text),
+                        captured_at: std::time::SystemTime::now(),
+                    };
+                    info!(
+                        pane,
+                        path = %fresh_path.display(),
+                        bytes = s.bytes.len(),
+                        "paste: fresh Wayland text suppressed eager screenshot pickup"
+                    );
+                    state.set_staged_text(s).await;
+                } else if let Ok(bytes) = std::fs::read(&fresh_path) {
                     let len = bytes.len();
                     let new_img = StagedImage {
                         bytes: Arc::new(bytes),
@@ -218,9 +233,8 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
     // replaces text and vice versa), so whatever's in the slot is the
     // most-recent staged action. If the slot is empty / stale, fall back
     // to scraping the live X11 clipboard for fresh text. Otherwise punt
-    // to bash. No recursion-guard / in-flight guard / queue collapse /
-    // notifier-skip / per-phase timing — those were all dropped on
-    // 2026-05-19 user request ("remove all the timing and guards").
+    // to bash. Dispatch itself still has a short duplicate-trigger guard
+    // so one physical paste gesture cannot insert the same payload twice.
     let mut staged = state.staged_snapshot().await;
     if !matches!(&staged, Some(s) if s.is_fresh()) {
         let external_text = if should_probe_external_text(state) {
@@ -266,7 +280,21 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
             .captured_at
             .elapsed()
             .unwrap_or(std::time::Duration::ZERO);
-        if age > std::time::Duration::from_secs(3) && should_probe_external_text(state) {
+        let wayland_text = read_wayland_text_if_present().await;
+        if let Some(bytes) = wayland_text {
+            let s = StagedText {
+                bytes: Arc::new(bytes),
+                captured_at: std::time::SystemTime::now(),
+            };
+            info!(
+                pane,
+                bytes = s.bytes.len(),
+                image_age_ms = age.as_millis() as u64,
+                "paste: live Wayland text overrides staged image"
+            );
+            state.set_staged_text(s.clone()).await;
+            staged = Some(StagedSelection::Text(s));
+        } else if age > std::time::Duration::from_secs(3) && should_probe_external_text(state) {
             if let Some(bytes) = read_clipboard_text_if_present().await {
                 let s = StagedText {
                     bytes: Arc::new(bytes),
@@ -323,6 +351,9 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
 
     match staged {
         Some(StagedSelection::Text(text)) => {
+            if !claim_paste_slot(state) {
+                return deduped_response(pane, started);
+            }
             let bytes = text.bytes.len();
             if let Err(e) = paste::dispatch_text_paste(state.clone(), pane.to_string(), text).await
             {
@@ -337,6 +368,9 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
             })
         }
         Some(StagedSelection::Image(img)) if img.is_fresh() => {
+            if !claim_paste_slot(state) {
+                return deduped_response(pane, started);
+            }
             if let Err(e) = paste::dispatch_image_paste(state.clone(), pane.to_string(), img).await
             {
                 error!(error = ?e, pane, "image paste dispatch failed");
@@ -360,6 +394,36 @@ async fn handle_paste(state: &Arc<SharedState>, pane: &str, started: Instant) ->
             json!({ "ok": false, "reason": "no-content", "fallback": "bash" })
         }
     }
+}
+
+fn deduped_response(pane: &str, started: Instant) -> Value {
+    info!(pane, "paste: duplicate trigger absorbed");
+    json!({
+        "ok": true,
+        "deduped": true,
+        "latency_ms": started.elapsed().as_millis() as u64,
+    })
+}
+
+fn claim_paste_slot(state: &SharedState) -> bool {
+    let now = now_unix_ms();
+    loop {
+        let last = state.last_paste_ms.load(Ordering::Relaxed);
+        if is_duplicate_paste(now, last, PASTE_DEDUP_WINDOW_MS) {
+            return false;
+        }
+        if state
+            .last_paste_ms
+            .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            return true;
+        }
+    }
+}
+
+fn is_duplicate_paste(now_ms: u64, last_ms: u64, window_ms: u64) -> bool {
+    last_ms != 0 && now_ms.saturating_sub(last_ms) < window_ms
 }
 
 fn should_scan_screenshots(state: &SharedState) -> bool {
@@ -461,6 +525,45 @@ async fn read_clipboard_text_if_present() -> Option<Vec<u8>> {
         return None;
     }
     Some(read_out.stdout)
+}
+
+/// Read text from the live Wayland clipboard only when Wayland clearly
+/// advertises text and no image target. This is intentionally separate from
+/// the X11 fallback: on Mutter, X11 can lag behind a fresh screenshot claim,
+/// while Wayland is the authoritative signal that a browser text copy really
+/// happened after the screenshot.
+async fn read_wayland_text_if_present() -> Option<Vec<u8>> {
+    let task = tokio::task::spawn_blocking(|| {
+        use wl_clipboard_rs::paste::{get_contents, get_mime_types, ClipboardType, MimeType, Seat};
+
+        let types = get_mime_types(ClipboardType::Regular, Seat::Unspecified).ok()?;
+        if types.iter().any(|t| t.starts_with("image/")) {
+            return None;
+        }
+        if !types.iter().any(|t| is_text_target(t)) {
+            return None;
+        }
+
+        let (mut pipe, _mime) =
+            get_contents(ClipboardType::Regular, Seat::Unspecified, MimeType::Text).ok()?;
+        let mut bytes = Vec::new();
+        pipe.read_to_end(&mut bytes).ok()?;
+        if bytes.is_empty() {
+            None
+        } else {
+            Some(bytes)
+        }
+    });
+
+    tokio::time::timeout(Duration::from_millis(150), task)
+        .await
+        .ok()?
+        .ok()
+        .flatten()
+}
+
+fn is_text_target(target: &str) -> bool {
+    matches!(target, "UTF8_STRING" | "STRING" | "TEXT") || target.starts_with("text/plain")
 }
 
 async fn handle_stage(state: &Arc<SharedState>, image_path: &str) -> Value {
@@ -600,5 +703,21 @@ mod tests {
     fn ignores_whitespace_and_padding() {
         assert_eq!(decode_base64("aGVs\nbG8=").unwrap(), b"hello");
         assert_eq!(decode_base64("aGVsbG8 ").unwrap(), b"hello");
+    }
+
+    #[test]
+    fn duplicate_paste_window_absorbs_only_recent_repeats() {
+        assert!(!is_duplicate_paste(1_000, 0, PASTE_DEDUP_WINDOW_MS));
+        assert!(is_duplicate_paste(1_100, 1_000, PASTE_DEDUP_WINDOW_MS));
+        assert!(!is_duplicate_paste(1_400, 1_000, PASTE_DEDUP_WINDOW_MS));
+    }
+
+    #[test]
+    fn text_target_detection_matches_clipboard_aliases() {
+        assert!(is_text_target("text/plain;charset=utf-8"));
+        assert!(is_text_target("text/plain"));
+        assert!(is_text_target("UTF8_STRING"));
+        assert!(!is_text_target("text/html"));
+        assert!(!is_text_target("image/png"));
     }
 }

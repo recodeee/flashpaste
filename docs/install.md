@@ -24,7 +24,7 @@ FlashPaste is only useful on the **GNOME Wayland + kitty + tmux** stack. If you 
 - **GNOME on Wayland** (mutter compositor) — Ubuntu 24.04+, Fedora 40+, Debian 13, Pop!_OS 24.04+
 - **[kitty](https://sw.kovidgoyal.net/kitty/)** terminal with `allow_remote_control yes`
 - **[tmux](https://github.com/tmux/tmux)** running inside kitty
-- A **terminal LLM agent**: Claude Code, Codex CLI, Aider, or anything that consumes raw Ctrl-V as an image-paste sentinel
+- A **terminal LLM agent**: Claude Code, Codex CLI, Aider, or another TUI with a known image-attach command
 
 System dependencies:
 

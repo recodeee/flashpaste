@@ -59,7 +59,7 @@ curl -fsSL -o /tmp/flashpaste.deb \
 sudo apt install /tmp/flashpaste.deb
 ```
 
-Aider accepts image paste via the same Ctrl-V sentinel Claude Code uses. The standard FlashPaste right-click → Paste flow attaches the image directly.
+Aider accepts images as chat files. The daemon detects an Aider pane and sends `/add <staged-image-path>` to the chat, so the standard FlashPaste right-click → Paste flow attaches the screenshot without depending on Aider's clipboard reader.
 
 ## Fast captures with `flashpaste-shoot`
 
